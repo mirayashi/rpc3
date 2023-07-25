@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 interface BCREST {
     struct Server {
         address addr;
+        uint stake;
         uint contributions;
     }
 
@@ -17,7 +18,6 @@ interface BCREST {
 
     struct QueuedRequest {
         uint nonce;
-        bytes headers;
         string ipfsHash;
         uint sentAt;
         uint ttl;
@@ -25,7 +25,6 @@ interface BCREST {
 
     struct Response {
         uint requestNonce;
-        bytes headers;
         string ipfsHash;
     }
 
@@ -40,13 +39,19 @@ interface BCREST {
         Response[] responses;
     }
 
+    // Events
+
     event NextBatchReady(string indexed stateIpfsHash);
 
     event ResponseReceived(uint nonce);
 
-    // Functions called by owner/DAO
+    // Errors
 
-    function setRequestMaxTtl(uint maxTtl) external;
+    error ServerAlreadyRegistered();
+
+    error ServerNotRegistered();
+
+    error InsufficientStake();
 
     // Functions called by servers
 
@@ -62,10 +67,7 @@ interface BCREST {
 
     // Functions called by clients
 
-    function depositCredits() external payable;
-
     function sendRequest(
-        bytes calldata headers,
         uint requestIpfsHash,
         uint ttl
     ) external returns (uint); // request nonce
