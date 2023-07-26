@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface BCREST {
+interface REST3 {
     struct Server {
         address addr;
         uint stake;
@@ -68,7 +68,7 @@ interface BCREST {
     // Functions called by clients
 
     function sendRequest(
-        uint requestIpfsHash,
+        string calldata requestIpfsHash,
         uint ttl
     ) external returns (uint); // request nonce
 

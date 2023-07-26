@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {BCREST} from "./BCREST.sol";
+import {REST3} from "./REST3.sol";
 
 library Utils {
     function calculateRewardShare(
@@ -10,12 +10,12 @@ library Utils {
         uint userShares
     ) internal pure returns (uint) {
         require(totalShares > 0);
-        require(userShares < totalShares);
+        require(userShares <= totalShares);
         return (balance * userShares) / totalShares;
     }
 }
 
-contract TicTacToeBCRESTApp is BCREST {
+contract TicTacToeREST3App is REST3 {
     struct GlobalParams {
         uint defaultRequestCost;
         uint requestMaxTtl;
@@ -25,10 +25,20 @@ contract TicTacToeBCRESTApp is BCREST {
     GlobalParams public globalParams;
     mapping(address => Server) private _servers;
     uint private _treasury;
+    uint private _totalContributions;
 
-    constructor(GlobalParams memory globalParams_) {
+    mapping(uint => QueuedRequest) private _queuedRequests;
+    uint private _queuedRequestsHead;
+    uint private _queuedRequestsTail;
+
+    string public stateIpfsHash;
+
+    constructor(
+        GlobalParams memory globalParams_,
+        string memory stateIpfsHash_
+    ) {
         globalParams = globalParams_;
-        _treasury = 0;
+        stateIpfsHash = stateIpfsHash_;
     }
 
     // Functions called by servers
@@ -43,7 +53,6 @@ contract TicTacToeBCRESTApp is BCREST {
         }
         s.addr = msg.sender;
         s.stake = msg.value;
-        s.contributions = 0;
     }
 
     function serverUnregister() external {
@@ -58,16 +67,19 @@ contract TicTacToeBCRESTApp is BCREST {
         _requireRegistered(s);
         uint serverContributions = s.contributions;
         uint treasury = _treasury;
+        uint totalContributions = _totalContributions;
 
         uint rewards = Utils.calculateRewardShare(
-            address(this).balance,
             treasury,
+            totalContributions,
             serverContributions
         );
         payable(msg.sender).transfer(rewards);
-        treasury -= serverContributions;
+        treasury -= rewards;
+        totalContributions -= serverContributions;
 
         _treasury = treasury;
+        _totalContributions = totalContributions;
         s.contributions = 0;
     }
 
@@ -78,9 +90,12 @@ contract TicTacToeBCRESTApp is BCREST {
     // Functions called by clients
 
     function sendRequest(
-        uint requestIpfsHash,
+        string calldata requestIpfsHash,
         uint ttl
-    ) external returns (uint) {}
+    ) external returns (uint) {
+        uint nonce = _queueRequest(requestIpfsHash, ttl);
+        return nonce;
+    }
 
     function getResponse(uint nonce) external view returns (Response memory) {}
 
@@ -90,5 +105,18 @@ contract TicTacToeBCRESTApp is BCREST {
         if (server.addr != msg.sender) {
             revert ServerNotRegistered();
         }
+    }
+
+    function _queueRequest(
+        string calldata requestIpfsHash,
+        uint ttl
+    ) internal returns (uint) {
+        uint queuedRequestsTail = _queuedRequestsTail++;
+        QueuedRequest storage q = _queuedRequests[queuedRequestsTail];
+        q.nonce = queuedRequestsTail;
+        q.ipfsHash = requestIpfsHash;
+        q.sentAt = block.timestamp;
+        q.ttl = ttl;
+        return queuedRequestsTail;
     }
 }
