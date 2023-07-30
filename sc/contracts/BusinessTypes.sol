@@ -8,6 +8,11 @@ struct Batch {
     Request[BATCH_SIZE] requests;
 }
 
+struct BatchView {
+    string initialStateIpfsHash;
+    Request[] requests;
+}
+
 struct BatchResult {
     string initialStateIpfsHash;
     string finalStateIpfsHash;
@@ -37,12 +42,14 @@ struct QueuedRequest {
     uint nonce;
     string ipfsHash;
     uint sentAt;
+    address author;
 }
 
 struct Request {
     uint nonce;
     string ipfsHash;
     uint currentTime;
+    address author;
 }
 
 struct RequestQueue {
@@ -54,6 +61,7 @@ struct RequestQueue {
 struct Response {
     uint requestNonce;
     string ipfsHash;
+    address author;
 }
 
 struct Server {

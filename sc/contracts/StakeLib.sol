@@ -5,9 +5,9 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 library StakeLib {
     // Decrease by 50% every 1 week
-    uint constant ONE_WEEK = 60480000;
+    uint constant ONE_WEEK = 604800;
     // Set to minAmount after 1 year
-    uint constant ONE_YEAR = 31536000000;
+    uint constant ONE_YEAR = 31536000;
 
     struct Stake {
         uint minAmount;
@@ -36,7 +36,8 @@ library StakeLib {
         uint periods100 = (elapsed * 100) / ONE_WEEK;
         uint periods = periods100 / 100;
         uint periodRest = periods100 % 100;
-        uint divisor = (100 + periodRest) * (2 ** periods);
-        return Math.max((self.baseAmount * 100) / divisor, self.minAmount);
+        uint newAmount = self.baseAmount >> periods;
+        newAmount -= ((newAmount - (newAmount >> 1)) * periodRest) / 100;
+        return Math.max(newAmount, self.minAmount);
     }
 }

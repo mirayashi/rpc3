@@ -45,6 +45,7 @@ contract REST3App {
     error IncorrectInitialState();
     error ResultAlreadySubmitted();
     error ResponseNotAvailable();
+    error RequestAuthorMismatch();
 
     constructor(GlobalParams memory globalParams, string memory stateIpfsHash) {
         _globalParams = globalParams;
@@ -101,9 +102,16 @@ contract REST3App {
         external
         view
         onlyRegistered
-        returns (Batch memory)
+        returns (BatchView memory)
     {
-        return _batch;
+        BatchView memory batchView = BatchView({
+            initialStateIpfsHash: _batch.initialStateIpfsHash,
+            requests: new Request[](_batchActualSize)
+        });
+        for (uint i = 0; i < _batchActualSize; i++) {
+            batchView.requests[i] = _batch.requests[i];
+        }
+        return batchView;
     }
 
     function submitBatchResult(
@@ -151,6 +159,9 @@ contract REST3App {
         if (r.requestNonce == 0) {
             revert ResponseNotAvailable();
         }
+        if (r.author != msg.sender) {
+            revert RequestAuthorMismatch();
+        }
         return r;
     }
 
@@ -166,6 +177,7 @@ contract REST3App {
         q.nonce = tail;
         q.ipfsHash = requestIpfsHash;
         q.sentAt = block.timestamp;
+        q.author = msg.sender;
         return tail;
     }
 
@@ -178,9 +190,13 @@ contract REST3App {
         r.nonce = nonce;
         r.ipfsHash = requestIpfsHash;
         r.currentTime = block.timestamp;
+        r.author = msg.sender;
         _batchActualSize = 1;
         _batchHash = keccak256(
-            abi.encodePacked(bytes(_batch.initialStateIpfsHash), nonce)
+            abi.encodePacked(
+                keccak256(bytes(_batch.initialStateIpfsHash)),
+                nonce
+            )
         );
         emit NextBatchReady();
         return nonce;
@@ -199,6 +215,7 @@ contract REST3App {
             r.nonce = nonce;
             r.ipfsHash = q.ipfsHash;
             r.currentTime = block.timestamp;
+            r.author = q.author;
             batchHash = keccak256(abi.encodePacked(batchHash, nonce));
             i++;
         }
