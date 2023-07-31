@@ -16,7 +16,7 @@ struct BatchView {
 struct BatchResult {
     string initialStateIpfsHash;
     string finalStateIpfsHash;
-    Response[BATCH_SIZE] responses;
+    Response[] responses;
 }
 
 struct Consensus {

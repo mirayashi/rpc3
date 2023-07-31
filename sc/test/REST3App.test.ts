@@ -29,8 +29,8 @@ describe("REST3App", function () {
       minStake: ethers.utils.parseUnits("1.0", "ether"),
       consensusMinDuration: ethers.BigNumber.from(1),
       consensusMaxDuration: ethers.BigNumber.from(10),
-      consensusQuorumPercent: ethers.BigNumber.from(85),
-      consensusRatioPercent: ethers.BigNumber.from(85),
+      consensusQuorumPercent: ethers.BigNumber.from(75),
+      consensusRatioPercent: ethers.BigNumber.from(65),
       maxInactivityFlags: ethers.BigNumber.from(5)
     }
     const stateIpfsHash = "foobar"
@@ -41,44 +41,30 @@ describe("REST3App", function () {
 
   async function deployAndRegisterOwner() {
     const fixture = await deploy()
-    await fixture.contract.serverRegister({ value: ethers.utils.parseUnits("1.0", "ether") })
+    await fixture.contract.serverRegister({ value: ethers.utils.parseUnits("1", "ether") })
     return fixture
   }
 
-  async function deployAndRegister3Users() {
+  async function deployAndRegister4Users() {
     const fixture = await deploy()
     const {
       contract,
-      users: [user1, user2, user3]
+      users: [user1, user2, user3, user4]
     } = fixture
-    await contract.connect(user1).serverRegister({ value: ethers.utils.parseUnits("1.0", "ether") })
-    await contract.connect(user2).serverRegister({ value: ethers.utils.parseUnits("2.0", "ether") })
-    await contract.connect(user3).serverRegister({ value: ethers.utils.parseUnits("4.0", "ether") })
+    await contract.connect(user1).serverRegister({ value: ethers.utils.parseUnits("1", "ether") })
+    await contract.connect(user2).serverRegister({ value: ethers.utils.parseUnits("2", "ether") })
+    await contract.connect(user3).serverRegister({ value: ethers.utils.parseUnits("4", "ether") })
+    await contract.connect(user4).serverRegister({ value: ethers.utils.parseUnits("8", "ether") })
     return fixture
   }
 
   async function deployAndSubmitOneRequest() {
-    const fixture = await deployAndRegisterOwner()
-    const {
-      contract,
-      users: [user1]
-    } = fixture
+    const fixture = await deployAndRegister4Users()
+    const { contract } = fixture
     const requestTimestamps: any = {}
-    await contract.connect(user1).sendRequest("request1")
+    await contract.sendRequest("request1")
     requestTimestamps["request1"] = await time.latest()
     return { ...fixture, requestTimestamps }
-  }
-
-  async function deployWithOneRequestInBatchAndOneRequestInQueue() {
-    const fixture = await deployAndSubmitOneRequest()
-    const {
-      contract,
-      users: [user1],
-      requestTimestamps
-    } = fixture
-    await contract.connect(user1).sendRequest("request2")
-    requestTimestamps["request2"] = await time.latest()
-    return fixture
   }
 
   describe("Deployment", function () {
@@ -156,11 +142,15 @@ describe("REST3App", function () {
     })
 
     it("Should decrease stake in a linear way until a week passes, then halve every week until it goes back to minimum stake", async () => {
-      const { contract } = await loadFixture(deployAndRegister3Users)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("8", "ether"))
+      const { contract } = await loadFixture(deployAndRegister4Users)
+      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("16", "ether"))
       await time.increase(120960)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("7.2", "ether"))
+      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("14.4", "ether"))
       await time.increase(181440)
+      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("12", "ether"))
+      await time.increase(302400)
+      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("8", "ether"))
+      await time.increase(302400)
       expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("6", "ether"))
       await time.increase(302400)
       expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseUnits("4", "ether"))
@@ -228,6 +218,17 @@ describe("REST3App", function () {
       }
     }
 
+    it("Should not be able to view current batch if not registered", async () => {
+      const {
+        contract,
+        users: [user1]
+      } = await loadFixture(deployAndRegisterOwner)
+      await expect(contract.connect(user1).getCurrentBatch()).to.be.revertedWithCustomError(
+        contract,
+        "ServerNotRegistered"
+      )
+    })
+
     it("Should initialize first batch", async () => {
       const {
         contract,
@@ -236,7 +237,7 @@ describe("REST3App", function () {
       } = await loadFixture(deployAndRegisterOwner)
       await expectThatCurrentBatchHas(contract, { stateIpfsHash, sizeOf: 0 })
 
-      await contract.connect(user1).sendRequest("request1")
+      await expect(contract.connect(user1).sendRequest("request1")).to.emit(contract, "NextBatchReady")
       await expectThatCurrentBatchHas(contract, {
         stateIpfsHash,
         sizeOf: 1,
@@ -254,14 +255,15 @@ describe("REST3App", function () {
     it("Should enqueue subsequent requests", async () => {
       const {
         contract,
+        owner,
         users: [user1],
         stateIpfsHash,
         requestTimestamps: { request1 }
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await contract.connect(user1).sendRequest("request2")
+      await contract.sendRequest("request2")
       // request2 should be only in queue, not in batch
-      await expectThatCurrentBatchHas(contract, {
+      await expectThatCurrentBatchHas(contract.connect(user1), {
         stateIpfsHash,
         sizeOf: 1,
         requests: [
@@ -269,10 +271,59 @@ describe("REST3App", function () {
             nonce: ethers.BigNumber.from(1),
             ipfsHash: "request1",
             currentTime: ethers.BigNumber.from(request1),
-            author: user1.address
+            author: owner.address
           })
         ]
       })
+    })
+  })
+
+  describe("Batch result submissions", () => {
+    it("Should revert if not registered", async () => {
+      const {
+        contract,
+        users: [user1]
+      } = await loadFixture(deployAndRegisterOwner)
+      await expect(
+        contract.connect(user1).submitBatchResult({ initialStateIpfsHash: "", finalStateIpfsHash: "", responses: [] })
+      ).to.be.revertedWithCustomError(contract, "ServerNotRegistered")
+    })
+
+    it("Should revert if empty batch", async () => {
+      const { contract } = await loadFixture(deployAndRegisterOwner)
+      await expect(
+        contract.submitBatchResult({ initialStateIpfsHash: "", finalStateIpfsHash: "", responses: [] })
+      ).to.be.revertedWithCustomError(contract, "EmptyBatch")
+    })
+
+    it("Should revert if initial state IPFS hash mismatches", async () => {
+      const {
+        contract,
+        users: [user1]
+      } = await loadFixture(deployAndSubmitOneRequest)
+      await expect(
+        contract
+          .connect(user1)
+          .submitBatchResult({ initialStateIpfsHash: "fake", finalStateIpfsHash: "", responses: [] })
+      ).to.be.revertedWithCustomError(contract, "IncorrectInitialState")
+    })
+
+    it("Should revert if attempt to submit result more than once", async () => {
+      const {
+        contract,
+        users: [user1],
+        stateIpfsHash
+      } = await loadFixture(deployAndSubmitOneRequest)
+      await expect(
+        contract
+          .connect(user1)
+          .submitBatchResult({ initialStateIpfsHash: stateIpfsHash, finalStateIpfsHash: "", responses: [] })
+      ).to.not.be.reverted
+      await expect(
+        contract
+          .connect(user1)
+          .submitBatchResult({ initialStateIpfsHash: stateIpfsHash, finalStateIpfsHash: "", responses: [] })
+      ).to.be.revertedWithCustomError(contract, "ResultAlreadySubmitted")
     })
   })
 })

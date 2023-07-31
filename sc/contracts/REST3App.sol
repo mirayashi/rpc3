@@ -39,6 +39,7 @@ contract REST3App {
     event ResponseReceived(uint indexed nonce);
     event RequestFailed(uint indexed nonce);
 
+    error EmptyBatch();
     error ServerAlreadyRegistered();
     error ServerNotRegistered();
     error InsufficientStake();
@@ -116,7 +117,10 @@ contract REST3App {
 
     function submitBatchResult(
         BatchResult calldata result
-    ) external onlyRegistered returns (bool) {
+    ) external onlyRegistered {
+        if (_batchActualSize == 0) {
+            revert EmptyBatch();
+        }
         if (
             keccak256(bytes(result.initialStateIpfsHash)) !=
             keccak256(bytes(_batch.initialStateIpfsHash))
@@ -135,11 +139,10 @@ contract REST3App {
         if (block.timestamp - startedAt > _globalParams.consensusMaxDuration) {
             _handleConsensusFailure();
             _prepareNextBatch();
-            return false;
         }
         bytes32 resultHash = keccak256(abi.encode(result));
         _batchResults[resultHash] = result;
-        return _addResultToConsensus(consensus, resultHash);
+        _addResultToConsensus(consensus, resultHash);
     }
 
     // Functions called by clients
@@ -228,14 +231,13 @@ contract REST3App {
     function _addResultToConsensus(
         Consensus storage consensus,
         bytes32 resultHash
-    ) internal returns (bool) {
+    ) internal {
         consensus.resultsByServer[msg.sender] = resultHash;
         consensus.numberOfParticipants++;
         uint count = ++consensus.countByResult[resultHash];
         if (count > consensus.countByResult[consensus.resultWithLargestCount]) {
             consensus.resultWithLargestCount = resultHash;
         }
-        bool accepted = true;
         if (
             block.timestamp - consensus.startedAt >
             _globalParams.consensusMinDuration &&
@@ -251,11 +253,9 @@ contract REST3App {
                 _handleConsensusSuccess(consensus);
             } else {
                 _handleConsensusFailure();
-                accepted = false;
             }
             _prepareNextBatch();
         }
-        return accepted;
     }
 
     function _handleConsensusSuccess(Consensus storage consensus) internal {
