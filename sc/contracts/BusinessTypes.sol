@@ -31,11 +31,10 @@ struct GlobalParams {
     uint defaultRequestCost;
     uint requestMaxTtl;
     uint minStake;
-    uint consensusMinDuration;
     uint consensusMaxDuration;
     uint consensusQuorumPercent;
     uint consensusRatioPercent;
-    uint maxInactivityFlags;
+    uint inactivityDuration;
 }
 
 struct QueuedRequest {
@@ -68,5 +67,5 @@ struct Server {
     address addr;
     uint stake;
     uint contributions;
-    uint inactivityFlags;
+    uint lastSeen;
 }

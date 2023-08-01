@@ -38,6 +38,7 @@ contract REST3App {
     event NextBatchReady();
     event ResponseReceived(uint indexed nonce);
     event RequestFailed(uint indexed nonce);
+    event BatchResultRecorded();
 
     error EmptyBatch();
     error ServerAlreadyRegistered();
@@ -76,6 +77,7 @@ contract REST3App {
         }
         s.addr = msg.sender;
         s.stake = msg.value;
+        s.lastSeen = block.timestamp;
         _serverSet.add(msg.sender);
     }
 
@@ -139,10 +141,21 @@ contract REST3App {
         if (block.timestamp - startedAt > _globalParams.consensusMaxDuration) {
             _handleConsensusFailure();
             _prepareNextBatch();
+            return;
         }
         bytes32 resultHash = keccak256(abi.encode(result));
         _batchResults[resultHash] = result;
         _addResultToConsensus(consensus, resultHash);
+        emit BatchResultRecorded();
+    }
+
+    function getContributionData()
+        external
+        view
+        onlyRegistered
+        returns (Server memory)
+    {
+        return _servers[msg.sender];
     }
 
     // Functions called by clients
@@ -239,8 +252,6 @@ contract REST3App {
             consensus.resultWithLargestCount = resultHash;
         }
         if (
-            block.timestamp - consensus.startedAt >
-            _globalParams.consensusMinDuration &&
             (consensus.numberOfParticipants * 100) / _serverSet.length() >=
             _globalParams.consensusQuorumPercent
         ) {
@@ -272,16 +283,16 @@ contract REST3App {
             address addr = _serverSet.at(i);
             bytes32 resultOfServer = consensus.resultsByServer[addr];
             if (resultOfServer == resultHash) {
-                // Server in majority = give a contribution point
+                // Server in majority = give a contribution point and reset inactivity flags
                 _servers[addr].contributions++;
                 _totalContributions++;
+                _servers[addr].lastSeen = block.timestamp;
             } else {
                 if (resultOfServer != bytes32(0)) {
                     // Server in minority = slash stake
                     _slash(addr);
                 }
-                // Server that did not participate to consensus = give an inactivity flag
-                _flagForInactivity(addr);
+                _unregisterIfInactive(addr);
             }
         }
     }
@@ -293,13 +304,6 @@ contract REST3App {
         }
     }
 
-    function _flagForInactivity(address addr) internal {
-        Server storage s = _servers[addr];
-        if (++s.inactivityFlags >= _globalParams.maxInactivityFlags) {
-            _unregister(addr);
-        }
-    }
-
     function _slash(address addr) internal {
         uint stake = _servers[addr].stake;
         uint toSlash = (stake * 2) / 100;
@@ -307,6 +311,15 @@ contract REST3App {
         _servers[addr].stake = stake;
         _treasury += toSlash;
         if (stake < _globalParams.minStake) {
+            _unregister(addr);
+        }
+    }
+
+    function _unregisterIfInactive(address addr) internal {
+        if (
+            block.timestamp - _servers[addr].lastSeen >
+            _globalParams.inactivityDuration
+        ) {
             _unregister(addr);
         }
     }
