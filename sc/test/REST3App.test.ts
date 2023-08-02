@@ -1,7 +1,8 @@
 import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { expect } from "chai"
 import { ethers } from "hardhat"
-import { batchResult1, batchResult2 } from "./data/batchResult"
+import { batchResult1, batchResult2 } from "./utils/batchResult"
+import expectThatCurrentBatchHas from "./utils/expectThatCurrentBatchHas"
 
 function toStruct(obj: Object) {
   return Object.assign(Object.values(obj), obj)
@@ -31,7 +32,8 @@ describe("REST3App", function () {
       consensusMaxDuration: ethers.BigNumber.from(10),
       consensusQuorumPercent: ethers.BigNumber.from(75),
       consensusRatioPercent: ethers.BigNumber.from(75),
-      inactivityDuration: ethers.BigNumber.from(3600)
+      inactivityDuration: ethers.BigNumber.from(3600),
+      housekeepReward: ethers.BigNumber.from(3)
     }
     const stateIpfsHash = "foobar"
     const contract = await REST3App.deploy(globalParams, stateIpfsHash)
@@ -70,6 +72,20 @@ describe("REST3App", function () {
     await contract.sendRequest("request1")
     requestTimestamps["request1"] = await time.latest()
     return { ...fixture, requestTimestamps }
+  }
+
+  async function deployAndCompleteOneConsensus() {
+    const fixture = await deployAndSubmitOneRequest()
+    const {
+      contract,
+      owner,
+      users: [user1, user2, user3]
+    } = fixture
+    await contract.sendRequest("request2") // enqueue so it is loaded in second batch
+    await contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))
+    await contract.connect(user2).submitBatchResult(batchResult1(0, owner.address))
+    await contract.connect(user3).submitBatchResult(batchResult1(0, owner.address))
+    return fixture
   }
 
   describe("Deployment", function () {
@@ -210,30 +226,6 @@ describe("REST3App", function () {
   })
 
   describe("Request submission", () => {
-    async function expectThatCurrentBatchHas(
-      contract: any,
-      {
-        stateIpfsHash,
-        requests,
-        sizeOf
-      }: {
-        stateIpfsHash?: string
-        requests?: Array<any>
-        sizeOf?: number
-      }
-    ) {
-      const batchView = await contract.getCurrentBatch()
-      if (stateIpfsHash) {
-        expect(batchView.initialStateIpfsHash).to.equal(stateIpfsHash)
-      }
-      if (sizeOf) {
-        expect(batchView.requests).to.have.lengthOf(sizeOf)
-      }
-      if (requests) {
-        expect(batchView.requests).to.deep.equal(requests)
-      }
-    }
-
     it("Should not be able to view current batch if not registered", async () => {
       const {
         contract,
@@ -251,10 +243,9 @@ describe("REST3App", function () {
         users: [user1],
         stateIpfsHash
       } = await loadFixture(deployAndRegisterOwner)
-      await expectThatCurrentBatchHas(contract, { stateIpfsHash, sizeOf: 0 })
-
       await expect(contract.connect(user1).sendRequest("request1")).to.emit(contract, "NextBatchReady")
       await expectThatCurrentBatchHas(contract, {
+        nonce: 0,
         stateIpfsHash,
         sizeOf: 1,
         requests: [
@@ -302,27 +293,44 @@ describe("REST3App", function () {
         users: [user1]
       } = await loadFixture(deployAndRegisterOwner)
       await expect(
-        contract.connect(user1).submitBatchResult(batchResult1("", owner.address))
+        contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))
       ).to.be.revertedWithCustomError(contract, "ServerNotRegistered")
+    })
+
+    it("Should emit BatchResultIgnored if submitting a result from previous batch", async () => {
+      const {
+        contract,
+        owner,
+        users: [user1]
+      } = await loadFixture(deployAndCompleteOneConsensus)
+      await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))).to.emit(
+        contract,
+        "BatchResultIgnored"
+      )
+      await expect(contract.connect(user1).submitBatchResult(batchResult1(1, owner.address))).not.to.emit(
+        contract,
+        "BatchResultIgnored"
+      )
     })
 
     it("Should revert if empty batch", async () => {
       const { contract, owner } = await loadFixture(deployAndRegisterOwner)
-      await expect(contract.submitBatchResult(batchResult1("", owner.address))).to.be.revertedWithCustomError(
+      await expect(contract.getCurrentBatch()).to.be.revertedWithCustomError(contract, "EmptyBatch")
+      await expect(contract.submitBatchResult(batchResult1(0, owner.address))).to.be.revertedWithCustomError(
         contract,
         "EmptyBatch"
       )
     })
 
-    it("Should revert if initial state IPFS hash mismatches", async () => {
+    it("Should revert if nonce mismatches", async () => {
       const {
         contract,
         owner,
         users: [user1]
       } = await loadFixture(deployAndSubmitOneRequest)
       await expect(
-        contract.connect(user1).submitBatchResult(batchResult1("fake", owner.address))
-      ).to.be.revertedWithCustomError(contract, "IncorrectInitialState")
+        contract.connect(user1).submitBatchResult(batchResult1(42, owner.address))
+      ).to.be.revertedWithCustomError(contract, "InvalidBatchNonce")
     })
 
     it("Should revert if attempt to submit result more than once", async () => {
@@ -332,33 +340,33 @@ describe("REST3App", function () {
         users: [user1],
         stateIpfsHash
       } = await loadFixture(deployAndSubmitOneRequest)
-      await expect(contract.connect(user1).submitBatchResult(batchResult1(stateIpfsHash, owner.address))).to.emit(
+      await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))).to.emit(
         contract,
         "BatchResultRecorded"
       )
       await expect(
-        contract.connect(user1).submitBatchResult(batchResult1(stateIpfsHash, owner.address))
+        contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))
       ).to.be.revertedWithCustomError(contract, "ResultAlreadySubmitted")
     })
 
-    it("Should fail consensus if max duration is exceeded", async () => {
+    it("Should emit consensus expired if max duration is exceeded", async () => {
       const {
         contract,
         owner,
         users: [user1, user2],
         stateIpfsHash
       } = await loadFixture(deployAndSubmitOneRequest)
-      await expect(contract.connect(user1).submitBatchResult(batchResult1(stateIpfsHash, owner.address))).to.emit(
+      await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))).to.emit(
         contract,
         "BatchResultRecorded"
       )
 
       await time.increase(12)
 
-      await expect(contract.connect(user2).submitBatchResult(batchResult1(stateIpfsHash, owner.address)))
-        .to.emit(contract, "RequestFailed")
-        .withArgs(ethers.BigNumber.from(1))
-        .and.to.emit(contract, "NextBatchReady")
+      await expect(contract.connect(user2).submitBatchResult(batchResult1(0, owner.address))).to.emit(
+        contract,
+        "ConsensusExpired"
+      )
     })
 
     it("Should end consensus with success if quorum and ratio is reached", async () => {
@@ -370,15 +378,15 @@ describe("REST3App", function () {
         usersLastSeen
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await expect(contract.connect(user1).submitBatchResult(batchResult1(stateIpfsHash, owner.address)))
+      await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address)))
         .to.emit(contract, "BatchResultRecorded")
         .and.not.to.emit(contract, "NextBatchReady")
 
-      await expect(contract.connect(user2).submitBatchResult(batchResult1(stateIpfsHash, owner.address)))
+      await expect(contract.connect(user2).submitBatchResult(batchResult1(0, owner.address)))
         .to.emit(contract, "BatchResultRecorded")
         .and.not.to.emit(contract, "NextBatchReady")
 
-      await expect(contract.connect(user3).submitBatchResult(batchResult1(stateIpfsHash, owner.address)))
+      await expect(contract.connect(user3).submitBatchResult(batchResult1(0, owner.address)))
         .to.emit(contract, "BatchResultRecorded")
         .and.to.emit(contract, "NextBatchReady")
         .and.to.emit(contract, "ResponseReceived")
@@ -429,15 +437,15 @@ describe("REST3App", function () {
         owner
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await expect(contract.connect(user1).submitBatchResult(batchResult1(stateIpfsHash, owner.address)))
+      await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address)))
         .to.emit(contract, "BatchResultRecorded")
         .and.not.to.emit(contract, "NextBatchReady")
 
-      await expect(contract.connect(user2).submitBatchResult(batchResult1(stateIpfsHash, owner.address)))
+      await expect(contract.connect(user2).submitBatchResult(batchResult1(0, owner.address)))
         .to.emit(contract, "BatchResultRecorded")
         .and.not.to.emit(contract, "NextBatchReady")
 
-      await expect(contract.connect(user4).submitBatchResult(batchResult2(stateIpfsHash, owner.address)))
+      await expect(contract.connect(user4).submitBatchResult(batchResult2(0, owner.address)))
         .to.emit(contract, "BatchResultRecorded")
         .and.to.emit(contract, "NextBatchReady")
         .and.to.emit(contract, "RequestFailed")
@@ -475,6 +483,41 @@ describe("REST3App", function () {
           lastSeen: usersLastSeen[3]
         })
       )
+    })
+
+    it("Should next batch be empty", async () => {
+      const {
+        contract,
+        owner,
+        users: [user1, user2, user3]
+      } = await deployAndSubmitOneRequest()
+      await contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))
+      await contract.connect(user2).submitBatchResult(batchResult1(0, owner.address))
+      await contract.connect(user3).submitBatchResult(batchResult1(0, owner.address))
+
+      await expect(contract.connect(user1).getCurrentBatch()).to.be.revertedWithCustomError(contract, "EmptyBatch")
+    })
+
+    it("Should next batch contain request2", async () => {
+      const {
+        contract,
+        owner,
+        users: [user1]
+      } = await deployAndCompleteOneConsensus()
+
+      await expectThatCurrentBatchHas(contract.connect(user1), {
+        nonce: 1,
+        stateIpfsHash: "finalFooBar1",
+        sizeOf: 1,
+        requests: [
+          toStruct({
+            nonce: ethers.BigNumber.from(2),
+            ipfsHash: "request2",
+            currentTime: ethers.BigNumber.from(await time.latest()),
+            author: owner.address
+          })
+        ]
+      })
     })
   })
 })

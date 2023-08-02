@@ -4,17 +4,20 @@ pragma solidity ^0.8.20;
 uint constant BATCH_SIZE = 6000;
 
 struct Batch {
+    uint nonce;
     string initialStateIpfsHash;
     Request[BATCH_SIZE] requests;
 }
 
 struct BatchView {
+    uint nonce;
     string initialStateIpfsHash;
     Request[] requests;
+    uint expiresAt;
 }
 
 struct BatchResult {
-    string initialStateIpfsHash;
+    uint nonce;
     string finalStateIpfsHash;
     Response[] responses;
 }
@@ -23,7 +26,7 @@ struct Consensus {
     uint startedAt;
     mapping(address => bytes32) resultsByServer;
     mapping(bytes32 => uint) countByResult;
-    uint numberOfParticipants;
+    address[] serversWhoParticipated;
     bytes32 resultWithLargestCount;
 }
 
@@ -35,6 +38,7 @@ struct GlobalParams {
     uint consensusQuorumPercent;
     uint consensusRatioPercent;
     uint inactivityDuration;
+    uint housekeepReward;
 }
 
 struct QueuedRequest {
