@@ -104,7 +104,8 @@ describe("REST3App", function () {
           addr: owner.address,
           stake: globalParams.minStake,
           contributions: 0,
-          lastSeen: await time.latest()
+          lastSeen: await time.latest(),
+          nextHousekeepAt: ethers.BigNumber.from(await time.latest()).add(globalParams.inactivityDuration)
         })
       )
       expect(await ethers.provider.getBalance(contract.address)).to.equal(globalParams.minStake)
@@ -156,12 +157,12 @@ describe("REST3App", function () {
 
     it("Should be at minimum stake", async () => {
       const { contract } = await loadFixture(deploy)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1"))
     })
 
     it("Should double stake after 1 registration", async () => {
       const { contract } = await loadFixture(deployAndRegisterOwner)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("2"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("2"))
     })
 
     it("Should double stake again (x4) after another registration", async () => {
@@ -170,34 +171,34 @@ describe("REST3App", function () {
         users: [user1]
       } = await loadFixture(deployAndRegisterOwner)
       await contract.connect(user1).serverRegister({ value: ethers.utils.parseEther("2") })
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("4"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("4"))
     })
 
     it("Should decrease stake in a linear way until a week passes, then halve every week until it goes back to minimum stake", async () => {
       const { contract } = await loadFixture(deployAndRegister4Users)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("16"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("16"))
       await time.increase(120960)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("14.4"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("14.4"))
       await time.increase(181440)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("12"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("12"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("8"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("8"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("6"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("6"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("4"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("4"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("3"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("3"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("2"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("2"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1.5"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1.5"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1"))
     })
 
     it("Should adjust stake correctly taking into account both new registrations and over time decrease", async () => {
@@ -205,23 +206,23 @@ describe("REST3App", function () {
         contract,
         users: [user1, user2, user3, user4]
       } = await loadFixture(deploy)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1"))
-      await contract.connect(user1).serverRegister({ value: await contract.getStakeAmount() })
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("2"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1"))
+      await contract.connect(user1).serverRegister({ value: await contract.getStakeRequirement() })
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("2"))
       await time.increase(302400)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1.5"))
-      await contract.connect(user2).serverRegister({ value: await contract.getStakeAmount() })
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("3"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1.5"))
+      await contract.connect(user2).serverRegister({ value: await contract.getStakeRequirement() })
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("3"))
       await time.increase(120960)
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("2.7"))
-      await contract.connect(user3).serverRegister({ value: await contract.getStakeAmount() })
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("5.4"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("2.7"))
+      await contract.connect(user3).serverRegister({ value: await contract.getStakeRequirement() })
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("5.4"))
       await time.increase(6048000) // 10 weeks
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("1"))
-      await contract.connect(user4).serverRegister({ value: await contract.getStakeAmount() })
-      expect(await contract.getStakeAmount()).to.deep.equal(ethers.utils.parseEther("2"))
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("1"))
+      await contract.connect(user4).serverRegister({ value: await contract.getStakeRequirement() })
+      expect(await contract.getStakeRequirement()).to.deep.equal(ethers.utils.parseEther("2"))
     })
   })
 
@@ -337,8 +338,7 @@ describe("REST3App", function () {
       const {
         contract,
         owner,
-        users: [user1],
-        stateIpfsHash
+        users: [user1]
       } = await loadFixture(deployAndSubmitOneRequest)
       await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))).to.emit(
         contract,
@@ -353,8 +353,7 @@ describe("REST3App", function () {
       const {
         contract,
         owner,
-        users: [user1, user2],
-        stateIpfsHash
+        users: [user1, user2]
       } = await loadFixture(deployAndSubmitOneRequest)
       await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))).to.emit(
         contract,
@@ -371,10 +370,10 @@ describe("REST3App", function () {
 
     it("Should end consensus with success if quorum and ratio is reached", async () => {
       const {
+        globalParams: { inactivityDuration },
         contract,
         owner,
         users: [user1, user2, user3, user4],
-        stateIpfsHash,
         usersLastSeen
       } = await loadFixture(deployAndSubmitOneRequest)
 
@@ -399,7 +398,8 @@ describe("REST3App", function () {
           addr: user1.address,
           stake: ethers.utils.parseEther("1"),
           contributions: 1,
-          lastSeen: latestTime
+          lastSeen: latestTime,
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[0]).add(inactivityDuration)
         })
       )
       expect(await contract.connect(user2).getContributionData()).to.deep.equal(
@@ -407,7 +407,8 @@ describe("REST3App", function () {
           addr: user2.address,
           stake: ethers.utils.parseEther("2"),
           contributions: 1,
-          lastSeen: latestTime
+          lastSeen: latestTime,
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[1]).add(inactivityDuration.mul(2))
         })
       )
       expect(await contract.connect(user3).getContributionData()).to.deep.equal(
@@ -415,7 +416,8 @@ describe("REST3App", function () {
           addr: user3.address,
           stake: ethers.utils.parseEther("4"),
           contributions: 1,
-          lastSeen: latestTime
+          lastSeen: latestTime,
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[2]).add(inactivityDuration.mul(3))
         })
       )
       expect(await contract.connect(user4).getContributionData()).to.deep.equal(
@@ -423,7 +425,8 @@ describe("REST3App", function () {
           addr: user4.address,
           stake: ethers.utils.parseEther("8"),
           contributions: 0,
-          lastSeen: usersLastSeen[3]
+          lastSeen: usersLastSeen[3],
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[3]).add(inactivityDuration.mul(4))
         })
       )
     })
@@ -431,9 +434,9 @@ describe("REST3App", function () {
     it("Should end consensus with failure if quorum is reached but not ratio", async () => {
       const {
         contract,
+        globalParams: { inactivityDuration },
         users: [user1, user2, user3, user4],
         usersLastSeen,
-        stateIpfsHash,
         owner
       } = await loadFixture(deployAndSubmitOneRequest)
 
@@ -456,7 +459,8 @@ describe("REST3App", function () {
           addr: user1.address,
           stake: ethers.utils.parseEther("1"),
           contributions: 0,
-          lastSeen: usersLastSeen[0]
+          lastSeen: usersLastSeen[0],
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[0]).add(inactivityDuration)
         })
       )
       expect(await contract.connect(user2).getContributionData()).to.deep.equal(
@@ -464,7 +468,8 @@ describe("REST3App", function () {
           addr: user2.address,
           stake: ethers.utils.parseEther("2"),
           contributions: 0,
-          lastSeen: usersLastSeen[1]
+          lastSeen: usersLastSeen[1],
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[1]).add(inactivityDuration.mul(2))
         })
       )
       expect(await contract.connect(user3).getContributionData()).to.deep.equal(
@@ -472,7 +477,8 @@ describe("REST3App", function () {
           addr: user3.address,
           stake: ethers.utils.parseEther("4"),
           contributions: 0,
-          lastSeen: usersLastSeen[2]
+          lastSeen: usersLastSeen[2],
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[2]).add(inactivityDuration.mul(3))
         })
       )
       expect(await contract.connect(user4).getContributionData()).to.deep.equal(
@@ -480,7 +486,8 @@ describe("REST3App", function () {
           addr: user4.address,
           stake: ethers.utils.parseEther("8"),
           contributions: 0,
-          lastSeen: usersLastSeen[3]
+          lastSeen: usersLastSeen[3],
+          nextHousekeepAt: ethers.BigNumber.from(usersLastSeen[3]).add(inactivityDuration.mul(4))
         })
       )
     })
@@ -518,6 +525,28 @@ describe("REST3App", function () {
           })
         ]
       })
+    })
+  })
+
+  describe("Batch skipping and housekeeping", () => {
+    it("Should emit BatchSkipped if current batch has expired, NoActionTaken otherwise", async () => {
+      const {
+        contract,
+        owner,
+        users: [user1, user2]
+      } = await loadFixture(deployAndSubmitOneRequest)
+      await expect(contract.connect(user1).submitBatchResult(batchResult1(0, owner.address))).to.emit(
+        contract,
+        "BatchResultRecorded"
+      )
+
+      await expect(contract.connect(user2).skipBatchIfConsensusExpired()).to.emit(contract, "NoActionTaken")
+
+      await time.increase(12)
+
+      await expect(contract.connect(user2).skipBatchIfConsensusExpired())
+        .to.emit(contract, "BatchSkipped")
+        .and.to.emit(contract, "NextBatchReady")
     })
   })
 })

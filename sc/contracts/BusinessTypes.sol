@@ -72,4 +72,5 @@ struct Server {
     uint stake;
     uint contributions;
     uint lastSeen;
+    uint nextHousekeepAt;
 }

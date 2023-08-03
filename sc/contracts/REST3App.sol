@@ -44,6 +44,7 @@ contract REST3App {
     event NoActionTaken();
     event BatchResultIgnored();
     event ConsensusExpired();
+    event HousekeepSuccess(uint nextHousekeepTimestamp);
 
     error EmptyBatch();
     error ServerAlreadyRegistered();
@@ -53,6 +54,7 @@ contract REST3App {
     error ResultAlreadySubmitted();
     error ResponseNotAvailable();
     error RequestAuthorMismatch();
+    error HousekeepCooldown(uint nextHousekeepTimestamp);
 
     constructor(GlobalParams memory globalParams, string memory stateIpfsHash) {
         _globalParams = globalParams;
@@ -62,16 +64,28 @@ contract REST3App {
         _requestQueue.tail = 1;
     }
 
-    function donateToTreasury() external payable {
+    fallback() external {
+        donateToTreasury();
+    }
+
+    /**
+     * This function may be called by anyone who wants to add funds to treasury.
+     */
+    function donateToTreasury() public payable {
         _treasury += msg.value;
     }
 
-    // Functions called by servers
-
-    function getStakeAmount() external view returns (uint) {
+    /**
+     * Get the minimum amount to stake in order to register now as a server.
+     */
+    function getStakeRequirement() external view returns (uint) {
         return _stake.calculateAmount();
     }
 
+    /**
+     * Register as a server. Requires to send a value that is greater than or
+     * equal to the minimum stake requirement accessible via getStakeRequirement().
+     */
     function serverRegister() external payable {
         Server storage s = _servers[msg.sender];
         if (s.addr == msg.sender) {
@@ -84,12 +98,21 @@ contract REST3App {
         s.stake = msg.value;
         s.lastSeen = block.timestamp;
         _serverSet.add(msg.sender);
+        _setNextHousekeepTimestamp(s);
     }
 
+    /**
+     * Unregister a server. Contribution points are forfeited if no withdrawal is
+     * made beforehand.
+     */
     function serverUnregister() external onlyRegistered {
         _unregister(msg.sender);
     }
 
+    /**
+     * Withdraw rewards corresponding to a share of the treasury calculated from
+     * contribution points.
+     */
     function withdrawRewards() external onlyRegistered {
         Server storage s = _servers[msg.sender];
         uint serverContributions = s.contributions;
@@ -106,6 +129,9 @@ contract REST3App {
         s.contributions = 0;
     }
 
+    /**
+     * Get all data from the current batch.
+     */
     function getCurrentBatch()
         external
         view
@@ -128,6 +154,16 @@ contract REST3App {
         return batchView;
     }
 
+    /**
+     * Submit the result for a specific batch. Result is taken into account if and only if:
+     * - Current batch nonce matches with the one provided in the response
+     * - Current batch is not empty
+     * - Result has not already been submitted for the same batch
+     * - Consensus period hasn't ended
+     *
+     * If this submission completes the consensus step, participants in majority receive a
+     * contribution point, participants in minority get a part of their stake slashed.
+     */
     function submitBatchResult(
         BatchResult calldata result
     ) external onlyRegistered {
@@ -155,18 +191,67 @@ contract REST3App {
         emit BatchResultRecorded();
     }
 
-    function skipBatchIfConsensusExpired() external {
+    /**
+     * Servers are expected to call this function when the consensus of the current batch
+     * has expired. This is so the protocol doesn't get stuck if nobody is submitting
+     * responses after batch expiration. One that successfully skips a batch via this function
+     * receives a contribution point.
+     */
+    function skipBatchIfConsensusExpired() external onlyRegistered {
         Consensus storage consensus = _consensus[_batch.nonce];
         if (_isConsensusExpired(consensus)) {
             _handleConsensusFailure();
             _prepareNextBatch();
-            _housekeepInactive();
+            _giveContributionPoints(_servers[msg.sender], 1);
             emit BatchSkipped();
         } else {
             emit NoActionTaken();
         }
     }
 
+    /**
+     * Get the timestamp after which the server is able to call housekeepInactive() again.
+     */
+    function getNextHousekeepTimestamp()
+        external
+        view
+        onlyRegistered
+        returns (uint)
+    {
+        return _servers[msg.sender].nextHousekeepAt;
+    }
+
+    /**
+     * Clean up inactive servers at regular intervals. A single server may
+     * call this function once in a while, cooldown gets higher as more servers
+     * join the protocol. Each call give contribution points on success.
+     */
+    function housekeepInactive() external onlyRegistered {
+        Server storage server = _servers[msg.sender];
+        if (block.timestamp < server.nextHousekeepAt) {
+            revert HousekeepCooldown(server.nextHousekeepAt);
+        }
+        address[] memory inactiveServers = new address[](_serverSet.length());
+        uint inactiveIndex = 0;
+        for (uint i = 0; i < _serverSet.length(); i++) {
+            address addr = _serverSet.at(i);
+            uint elapsedSeen = block.timestamp - server.lastSeen;
+            if (elapsedSeen > _globalParams.inactivityDuration) {
+                // Inactive for more than inactivityDuration = unregister
+                inactiveServers[inactiveIndex++] = addr;
+            }
+        }
+        for (uint i = 0; i < inactiveIndex; i++) {
+            _unregister(inactiveServers[i]);
+        }
+        _giveContributionPoints(server, _globalParams.housekeepReward);
+        _setNextHousekeepTimestamp(server);
+        emit HousekeepSuccess(server.nextHousekeepAt);
+    }
+
+    /**
+     * Get all data related to contribution statistics of the server calling this function.
+     */
     function getContributionData()
         external
         view
@@ -176,8 +261,11 @@ contract REST3App {
         return _servers[msg.sender];
     }
 
-    // Functions called by clients
-
+    /**
+     * Clients may send requests through this function. If current batch is empty,
+     * it is loaded immediately in a batch, otherwise it is enqueued and will be
+     * processed in next batch.
+     */
     function sendRequest(string calldata requestIpfsHash) external {
         uint nonce;
         if (_requestQueue.head == _requestQueue.tail && _batchActualSize == 0) {
@@ -188,6 +276,11 @@ contract REST3App {
         emit RequestSubmitted(nonce);
     }
 
+    /**
+     * Clients may read the response for their request here. They are expected
+     * to listen to ResponseReceived events matching their request nonce and
+     * then call this function.
+     */
     function getResponse(uint nonce) external view returns (Response memory) {
         Response memory r = _responseByNonce[nonce];
         if (r.requestNonce == 0) {
@@ -298,8 +391,7 @@ contract REST3App {
             bytes32 resultOfServer = consensus.resultsByServer[addr];
             if (resultOfServer == resultHash) {
                 // Server in majority = give a contribution point
-                _servers[addr].contributions++;
-                _totalContributions++;
+                _giveContributionPoints(_servers[addr], 1);
             } else {
                 // Server in minority = slash stake
                 _slash(addr);
@@ -323,26 +415,19 @@ contract REST3App {
             _globalParams.consensusMaxDuration;
     }
 
-    function _housekeepInactive() internal {
-        address[] memory inactiveServers = new address[](_serverSet.length());
-        uint inactiveIndex = 0;
-        for (uint i = 0; i < _serverSet.length(); i++) {
-            address addr = _serverSet.at(i);
-            if (
-                block.timestamp - _servers[addr].lastSeen >
-                _globalParams.inactivityDuration
-            ) {
-                // Inactive for more than inactivityDuration = unregister
-                inactiveServers[inactiveIndex++] = addr;
-            }
-        }
-        for (uint i = 0; i < inactiveIndex; i++) {
-            _unregister(inactiveServers[i]);
-        }
-        uint reward = _globalParams.housekeepReward;
-        _servers[msg.sender].contributions += reward;
-        _totalContributions += reward;
-        _servers[msg.sender].lastSeen = block.timestamp;
+    function _setNextHousekeepTimestamp(Server storage s) internal {
+        s.nextHousekeepAt =
+            block.timestamp +
+            _globalParams.inactivityDuration *
+            _serverSet.length();
+    }
+
+    function _giveContributionPoints(
+        Server storage server,
+        uint points
+    ) internal {
+        server.contributions += points;
+        _totalContributions += points;
     }
 
     function _slash(address addr) internal {
