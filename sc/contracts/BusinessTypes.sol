@@ -39,6 +39,7 @@ struct GlobalParams {
     uint consensusRatioPercent;
     uint inactivityDuration;
     uint housekeepReward;
+    uint slashPercent;
 }
 
 struct QueuedRequest {

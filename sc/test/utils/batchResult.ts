@@ -31,3 +31,20 @@ export function batchResult2(
     ]
   }
 }
+
+export function batchResult3(
+  nonce: number,
+  author: any
+): { nonce: number; finalStateIpfsHash: string; responses: Array<any> } {
+  return {
+    nonce,
+    finalStateIpfsHash: "finalFooBar3",
+    responses: [
+      {
+        requestNonce: 1,
+        ipfsHash: "responseZeub",
+        author
+      }
+    ]
+  }
+}

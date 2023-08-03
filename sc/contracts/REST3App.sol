@@ -11,10 +11,10 @@ contract REST3App {
     using EnumerableSet for EnumerableSet.AddressSet;
     using StakeLib for StakeLib.Stake;
 
-    GlobalParams public _globalParams;
-    uint public _treasury;
-    uint public _totalContributions;
-    StakeLib.Stake private _stake; // publicly exposed via getStakeAmount()
+    GlobalParams public globalParams;
+    uint public treasury;
+    uint public totalContributions;
+    StakeLib.Stake private _stake; // publicly exposed via getStakeRequirement()
 
     mapping(address => Server) private _servers;
     EnumerableSet.AddressSet private _serverSet;
@@ -35,6 +35,8 @@ contract REST3App {
         _;
     }
 
+    event ServerRegistered(address indexed addr);
+    event ServerUnregistered(address indexed addr);
     event NextBatchReady();
     event ResponseReceived(uint indexed nonce);
     event RequestFailed(uint indexed nonce);
@@ -56,8 +58,11 @@ contract REST3App {
     error RequestAuthorMismatch();
     error HousekeepCooldown(uint nextHousekeepTimestamp);
 
-    constructor(GlobalParams memory globalParams, string memory stateIpfsHash) {
-        _globalParams = globalParams;
+    constructor(
+        GlobalParams memory globalParams_,
+        string memory stateIpfsHash
+    ) {
+        globalParams = globalParams_;
         _stake.minAmount = globalParams.minStake;
         _batch.initialStateIpfsHash = stateIpfsHash;
         _requestQueue.head = 1;
@@ -72,7 +77,7 @@ contract REST3App {
      * This function may be called by anyone who wants to add funds to treasury.
      */
     function donateToTreasury() public payable {
-        _treasury += msg.value;
+        treasury += msg.value;
     }
 
     /**
@@ -80,6 +85,13 @@ contract REST3App {
      */
     function getStakeRequirement() external view returns (uint) {
         return _stake.calculateAmount();
+    }
+
+    /**
+     * Get the number of servers currently registered
+     */
+    function getServerCount() external view returns (uint) {
+        return _serverSet.length();
     }
 
     /**
@@ -99,34 +111,37 @@ contract REST3App {
         s.lastSeen = block.timestamp;
         _serverSet.add(msg.sender);
         _setNextHousekeepTimestamp(s);
+        emit ServerRegistered(msg.sender);
     }
 
     /**
      * Unregister a server. Contribution points are forfeited if no withdrawal is
-     * made beforehand.
+     * made beforehand. Unregistering costs a fee of a certain % of staked amount
+     * defined in global params.
      */
     function serverUnregister() external onlyRegistered {
+        _slash(msg.sender);
         _unregister(msg.sender);
     }
 
     /**
-     * Withdraw rewards corresponding to a share of the treasury calculated from
+     * Calculate the rewards that can be claimed from the server's contributions.
+     */
+    function getClaimableRewards() external view onlyRegistered returns (uint) {
+        Server storage s = _servers[msg.sender];
+        return _calculateTreasuryShare(s);
+    }
+
+    /**
+     * Claim rewards corresponding to a share of the treasury calculated from
      * contribution points.
      */
-    function withdrawRewards() external onlyRegistered {
+    function claimRewards() external onlyRegistered {
         Server storage s = _servers[msg.sender];
-        uint serverContributions = s.contributions;
-        uint treasury = _treasury;
-        uint totalContributions = _totalContributions;
-
-        uint rewards = (treasury * serverContributions) / totalContributions;
+        uint rewards = _calculateTreasuryShare(s);
         payable(msg.sender).transfer(rewards);
         treasury -= rewards;
-        totalContributions -= serverContributions;
-
-        _treasury = treasury;
-        _totalContributions = totalContributions;
-        s.contributions = 0;
+        _resetContributionPoints(s);
     }
 
     /**
@@ -146,7 +161,7 @@ contract REST3App {
             nonce: _batch.nonce,
             initialStateIpfsHash: _batch.initialStateIpfsHash,
             requests: new Request[](_batchActualSize),
-            expiresAt: startedAt + _globalParams.consensusMaxDuration
+            expiresAt: startedAt + globalParams.consensusMaxDuration
         });
         for (uint i = 0; i < _batchActualSize; i++) {
             batchView.requests[i] = _batch.requests[i];
@@ -188,6 +203,7 @@ contract REST3App {
         bytes32 resultHash = keccak256(abi.encode(result));
         _batchResults[resultHash] = result;
         _addResultToConsensus(consensus, resultHash);
+        _servers[msg.sender].lastSeen = block.timestamp;
         emit BatchResultRecorded();
     }
 
@@ -231,20 +247,24 @@ contract REST3App {
         if (block.timestamp < server.nextHousekeepAt) {
             revert HousekeepCooldown(server.nextHousekeepAt);
         }
-        address[] memory inactiveServers = new address[](_serverSet.length());
+        address[] memory inactiveServers = new address[](
+            _serverSet.length() - 1 // - 1 because msg.sender cannot be in this array
+        );
         uint inactiveIndex = 0;
         for (uint i = 0; i < _serverSet.length(); i++) {
             address addr = _serverSet.at(i);
-            uint elapsedSeen = block.timestamp - server.lastSeen;
-            if (elapsedSeen > _globalParams.inactivityDuration) {
+            if (addr == msg.sender) continue;
+            uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
+            if (elapsedSeen > globalParams.inactivityDuration) {
                 // Inactive for more than inactivityDuration = unregister
                 inactiveServers[inactiveIndex++] = addr;
             }
         }
         for (uint i = 0; i < inactiveIndex; i++) {
+            _slash(inactiveServers[i]);
             _unregister(inactiveServers[i]);
         }
-        _giveContributionPoints(server, _globalParams.housekeepReward);
+        _giveContributionPoints(server, globalParams.housekeepReward);
         _setNextHousekeepTimestamp(server);
         emit HousekeepSuccess(server.nextHousekeepAt);
     }
@@ -341,10 +361,12 @@ contract REST3App {
             i++;
         }
         _batchActualSize = i;
-        _batch.nonce = _batchNonceGenerator++;
-        _consensus[_batch.nonce].startedAt = block.timestamp;
         _requestQueue.head = head;
-        emit NextBatchReady();
+        if (i > 0) {
+            _batch.nonce = _batchNonceGenerator++;
+            _consensus[_batch.nonce].startedAt = block.timestamp;
+            emit NextBatchReady();
+        }
     }
 
     function _addResultToConsensus(
@@ -360,13 +382,13 @@ contract REST3App {
         if (
             (consensus.serversWhoParticipated.length * 100) /
                 _serverSet.length() >=
-            _globalParams.consensusQuorumPercent
+            globalParams.consensusQuorumPercent
         ) {
             if (
                 (consensus.countByResult[consensus.resultWithLargestCount] *
                     100) /
                     consensus.serversWhoParticipated.length >=
-                _globalParams.consensusRatioPercent
+                globalParams.consensusRatioPercent
             ) {
                 _handleConsensusSuccess(consensus);
             } else {
@@ -395,8 +417,10 @@ contract REST3App {
             } else {
                 // Server in minority = slash stake
                 _slash(addr);
+                if (_servers[addr].stake < globalParams.minStake) {
+                    _unregister(addr);
+                }
             }
-            _servers[addr].lastSeen = block.timestamp;
         }
     }
 
@@ -412,13 +436,13 @@ contract REST3App {
     ) internal view returns (bool) {
         return
             block.timestamp - consensus.startedAt >
-            _globalParams.consensusMaxDuration;
+            globalParams.consensusMaxDuration;
     }
 
     function _setNextHousekeepTimestamp(Server storage s) internal {
         s.nextHousekeepAt =
             block.timestamp +
-            _globalParams.inactivityDuration *
+            globalParams.inactivityDuration *
             _serverSet.length();
     }
 
@@ -427,25 +451,37 @@ contract REST3App {
         uint points
     ) internal {
         server.contributions += points;
-        _totalContributions += points;
+        totalContributions += points;
+    }
+
+    function _resetContributionPoints(Server storage server) internal {
+        totalContributions -= server.contributions;
+        server.contributions = 0;
+    }
+
+    function _calculateTreasuryShare(
+        Server storage s
+    ) internal view returns (uint) {
+        if (totalContributions == 0) {
+            return 0;
+        }
+        return (treasury * s.contributions) / totalContributions;
     }
 
     function _slash(address addr) internal {
         uint stake = _servers[addr].stake;
-        uint toSlash = (stake * 2) / 100;
+        uint toSlash = (stake * globalParams.slashPercent) / 100;
         stake -= toSlash;
         _servers[addr].stake = stake;
-        _treasury += toSlash;
-        if (stake < _globalParams.minStake) {
-            _unregister(addr);
-        }
+        treasury += toSlash;
     }
 
     function _unregister(address addr) internal {
         Server storage s = _servers[addr];
         payable(addr).transfer(s.stake);
         _serverSet.remove(addr);
-        _totalContributions -= s.contributions;
+        _resetContributionPoints(s);
         delete _servers[addr];
+        emit ServerUnregistered(addr);
     }
 }
