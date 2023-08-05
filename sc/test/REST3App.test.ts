@@ -70,10 +70,8 @@ describe("REST3App", function () {
   async function deployAndSubmitOneRequest() {
     const fixture = await deployAndRegister4Users()
     const { contract } = fixture
-    const requestTimestamps: any = {}
     await contract.sendRequest("request1")
-    requestTimestamps["request1"] = await time.latest()
-    return { ...fixture, requestTimestamps }
+    return fixture
   }
 
   async function deployAndCompleteOneConsensus() {
@@ -257,7 +255,6 @@ describe("REST3App", function () {
           toStruct({
             nonce: ethers.BigNumber.from(1),
             ipfsHash: "request1",
-            currentTime: ethers.BigNumber.from(await time.latest()),
             author: user1.address
           })
         ]
@@ -269,8 +266,7 @@ describe("REST3App", function () {
         contract,
         owner,
         users: [user1],
-        stateIpfsHash,
-        requestTimestamps: { request1 }
+        stateIpfsHash
       } = await loadFixture(deployAndSubmitOneRequest)
 
       await contract.sendRequest("request2")
@@ -282,7 +278,6 @@ describe("REST3App", function () {
           toStruct({
             nonce: ethers.BigNumber.from(1),
             ipfsHash: "request1",
-            currentTime: ethers.BigNumber.from(request1),
             author: owner.address
           })
         ]
@@ -623,7 +618,6 @@ describe("REST3App", function () {
           toStruct({
             nonce: ethers.BigNumber.from(2),
             ipfsHash: "request2",
-            currentTime: ethers.BigNumber.from(await time.latest()),
             author: owner.address
           })
         ]
@@ -660,7 +654,7 @@ describe("REST3App", function () {
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).to.emit(contract, "NoActionTaken")
 
-      await time.increase(12)
+      await time.increase(600)
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).to.emit(contract, "BatchSkipped")
     })
@@ -718,7 +712,7 @@ describe("REST3App", function () {
         users: [user1, user2, user3, user4]
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await time.increase(50)
+      await time.increase(600)
 
       // user 1 will skip an expired batch in order to get a contribution point
       await contract.connect(user1).skipBatchIfConsensusExpired()
@@ -799,20 +793,23 @@ describe("REST3App", function () {
       // First requests initializes a batch of 1
       const promises = []
       for (let i = 0; i < requestsPerBatch + 1; i++) {
-        promises.push(sendRequest())
+        promises.push(sendRequest().catch(e => console.error(e)))
       }
       await Promise.allSettled(promises)
 
       const batchNonce = (await contract.connect(wallets[0]).getCurrentBatch()).nonce.toNumber()
-      await Promise.allSettled(
-        wallets.map(async (wallet, i) => {
+      const submitPromises = wallets.map(async (wallet, i) => {
+        try {
           await contract.connect(wallet).submitBatchResult(batchResult1(batchNonce, owner.address))
           console.log("Wallet %d submitted result for batch %d", i, batchNonce)
-        })
-      )
+        } catch (e) {
+          console.error(e)
+        }
+      })
+      await Promise.allSettled(submitPromises)
 
       await contract.connect(wallets[0]).housekeepInactive()
-      expect(await contract.getServerCount()).to.equal(Math.floor(servers * 0.75))
+      expect(await contract.getServerCount()).to.equal(Math.ceil(servers * 0.75))
     }
 
     it.only("Should handle 50 servers and 500 requests per batch without exploding gas limit", async () => {

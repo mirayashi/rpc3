@@ -8,7 +8,7 @@
 		"editor.formatOnSave": true,
 		"solidity.defaultCompiler": "localNodeModule",
 		"solidity.enabledAsYouTypeCompilationErrorCheck": true,
-		"solidity.compileUsingRemoteVersion": "latest",
+		"solidity.compileUsingRemoteVersion": "v0.8.20+commit.a1b79de6",
 		"prettier.arrowParens": "avoid",
 		"prettier.semi": false,
 		"prettier.tabWidth": 2,

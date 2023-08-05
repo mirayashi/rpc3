@@ -6,7 +6,7 @@ uint constant BATCH_SIZE = 6000;
 struct Batch {
     uint nonce;
     string initialStateIpfsHash;
-    Request[BATCH_SIZE] requests;
+    uint head;
 }
 
 struct BatchView {
@@ -14,6 +14,11 @@ struct BatchView {
     string initialStateIpfsHash;
     Request[] requests;
     uint expiresAt;
+}
+
+struct BatchRange {
+    uint start;
+    uint end;
 }
 
 struct BatchResult {
@@ -42,22 +47,14 @@ struct GlobalParams {
     uint slashPercent;
 }
 
-struct QueuedRequest {
-    uint nonce;
-    string ipfsHash;
-    uint sentAt;
-    address author;
-}
-
 struct Request {
     uint nonce;
     string ipfsHash;
-    uint currentTime;
     address author;
 }
 
 struct RequestQueue {
-    mapping(uint => QueuedRequest) queue;
+    mapping(uint => Request) queue;
     uint head;
     uint tail;
 }

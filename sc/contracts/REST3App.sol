@@ -7,6 +7,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "./BusinessTypes.sol";
 import {StakeLib} from "./StakeLib.sol";
 
+import "hardhat/console.sol";
+
 contract REST3App {
     using EnumerableSet for EnumerableSet.AddressSet;
     using StakeLib for StakeLib.Stake;
@@ -22,8 +24,8 @@ contract REST3App {
     RequestQueue private _requestQueue;
 
     Batch private _batch;
-    uint private _batchActualSize;
     uint _batchNonceGenerator;
+    mapping(uint => BatchRange) _batchRanges;
     mapping(bytes32 => BatchResult) private _batchResults;
     mapping(uint => Consensus) private _consensus;
     mapping(uint => Response) private _responseByNonce;
@@ -48,6 +50,7 @@ contract REST3App {
     event ConsensusExpired();
     event HousekeepSuccess(uint nextHousekeepTimestamp);
 
+    error BatchSizeMismatch(uint expectedSize);
     error EmptyBatch();
     error ServerAlreadyRegistered();
     error ServerNotRegistered();
@@ -67,9 +70,10 @@ contract REST3App {
         _batch.initialStateIpfsHash = stateIpfsHash;
         _requestQueue.head = 1;
         _requestQueue.tail = 1;
+        _batch.head = 1;
     }
 
-    fallback() external {
+    receive() external payable {
         donateToTreasury();
     }
 
@@ -153,18 +157,19 @@ contract REST3App {
         onlyRegistered
         returns (BatchView memory)
     {
-        if (_batchActualSize == 0) {
+        uint batchSize = _batchSize();
+        if (batchSize == 0) {
             revert EmptyBatch();
         }
         uint startedAt = _consensus[_batch.nonce].startedAt;
         BatchView memory batchView = BatchView({
             nonce: _batch.nonce,
             initialStateIpfsHash: _batch.initialStateIpfsHash,
-            requests: new Request[](_batchActualSize),
+            requests: new Request[](batchSize),
             expiresAt: startedAt + globalParams.consensusMaxDuration
         });
-        for (uint i = 0; i < _batchActualSize; i++) {
-            batchView.requests[i] = _batch.requests[i];
+        for (uint i = 0; i < batchSize; i++) {
+            batchView.requests[i] = _requestQueue.queue[_batch.head + i];
         }
         return batchView;
     }
@@ -173,6 +178,7 @@ contract REST3App {
      * Submit the result for a specific batch. Result is taken into account if and only if:
      * - Current batch nonce matches with the one provided in the response
      * - Current batch is not empty
+     * - Number of responses matches number of requests in batch
      * - Result has not already been submitted for the same batch
      * - Consensus period hasn't ended
      *
@@ -189,8 +195,12 @@ contract REST3App {
         if (result.nonce != _batch.nonce) {
             revert InvalidBatchNonce();
         }
-        if (_batchActualSize == 0) {
+        uint batchSize = _batchSize();
+        if (batchSize == 0) {
             revert EmptyBatch();
+        }
+        if (result.responses.length != batchSize) {
+            revert BatchSizeMismatch(batchSize);
         }
         Consensus storage consensus = _consensus[_batch.nonce];
         if (consensus.resultsByServer[msg.sender] != bytes32(0)) {
@@ -287,13 +297,11 @@ contract REST3App {
      * processed in next batch.
      */
     function sendRequest(string calldata requestIpfsHash) external {
-        uint nonce;
-        if (_requestQueue.head == _requestQueue.tail && _batchActualSize == 0) {
-            nonce = _putRequestImmediatelyInBatch(requestIpfsHash);
-        } else {
-            nonce = _queueRequest(requestIpfsHash);
-        }
+        uint nonce = _queueRequest(requestIpfsHash);
         emit RequestSubmitted(nonce);
+        if (_batchSize() == 0) {
+            _prepareNextBatch();
+        }
     }
 
     /**
@@ -316,54 +324,31 @@ contract REST3App {
     // Internals
     // --------------
 
+    function _batchSize() internal view returns (uint) {
+        return _requestQueue.head - _batch.head;
+    }
+
     function _queueRequest(
         string calldata requestIpfsHash
     ) internal returns (uint) {
         uint tail = _requestQueue.tail++;
-        QueuedRequest storage q = _requestQueue.queue[tail];
-        q.nonce = tail;
-        q.ipfsHash = requestIpfsHash;
-        q.sentAt = block.timestamp;
-        q.author = msg.sender;
+        Request storage req = _requestQueue.queue[tail];
+        req.nonce = tail;
+        req.ipfsHash = requestIpfsHash;
+        req.author = msg.sender;
         return tail;
     }
 
-    function _putRequestImmediatelyInBatch(
-        string calldata requestIpfsHash
-    ) internal returns (uint) {
-        _requestQueue.head++;
-        uint nonce = _requestQueue.tail++;
-        Request storage r = _batch.requests[0];
-        r.nonce = nonce;
-        r.ipfsHash = requestIpfsHash;
-        r.currentTime = block.timestamp;
-        r.author = msg.sender;
-        _batchActualSize = 1;
-        _batch.nonce = _batchNonceGenerator++;
-        _consensus[_batch.nonce].startedAt = block.timestamp;
-        emit NextBatchReady();
-        return nonce;
-    }
-
     function _prepareNextBatch() internal {
-        uint head = _requestQueue.head;
-        uint tail = _requestQueue.tail;
-
-        uint i = 0;
-        while (head < tail && i < BATCH_SIZE) {
-            Request storage r = _batch.requests[i];
-            QueuedRequest storage q = _requestQueue.queue[head++];
-            uint nonce = q.nonce;
-            r.nonce = nonce;
-            r.ipfsHash = q.ipfsHash;
-            r.currentTime = block.timestamp;
-            r.author = q.author;
-            i++;
-        }
-        _batchActualSize = i;
-        _requestQueue.head = head;
-        if (i > 0) {
-            _batch.nonce = _batchNonceGenerator++;
+        uint oldHead = _requestQueue.head;
+        uint newHead = Math.min(oldHead + BATCH_SIZE, _requestQueue.tail);
+        _batch.head = oldHead;
+        _requestQueue.head = newHead;
+        if (newHead - oldHead > 0) {
+            uint nonce = _batchNonceGenerator++;
+            _batch.nonce = nonce;
+            _batchRanges[nonce].start = oldHead;
+            _batchRanges[nonce].end = newHead;
             _consensus[_batch.nonce].startedAt = block.timestamp;
             emit NextBatchReady();
         }
@@ -400,12 +385,14 @@ contract REST3App {
 
     function _handleConsensusSuccess(Consensus storage consensus) internal {
         bytes32 resultHash = consensus.resultWithLargestCount;
-        BatchResult memory batchResult = _batchResults[resultHash];
+        BatchResult storage batchResult = _batchResults[resultHash];
         _batch.initialStateIpfsHash = batchResult.finalStateIpfsHash;
-        for (uint i = 0; i < batchResult.responses.length; i++) {
+        uint rangeStart = _batchRanges[batchResult.nonce].start;
+        uint rangeEnd = _batchRanges[batchResult.nonce].end;
+        for (uint i = 0; i < rangeEnd - rangeStart; i++) {
             Response memory r = batchResult.responses[i];
-            uint nonce = r.requestNonce;
-            _responseByNonce[nonce] = r;
+            uint nonce = rangeStart + i;
+            _responseByNonce[i] = r;
             emit ResponseReceived(nonce);
         }
         for (uint i = 0; i < consensus.serversWhoParticipated.length; i++) {
@@ -425,8 +412,8 @@ contract REST3App {
     }
 
     function _handleConsensusFailure() internal {
-        for (uint i = 0; i < _batchActualSize; i++) {
-            Request storage r = _batch.requests[i];
+        for (uint h = _batch.head; h < _requestQueue.head; h++) {
+            Request storage r = _requestQueue.queue[h];
             emit RequestFailed(r.nonce);
         }
     }
@@ -483,5 +470,14 @@ contract REST3App {
         _resetContributionPoints(s);
         delete _servers[addr];
         emit ServerUnregistered(addr);
+    }
+
+    function _printHeads() internal view {
+        console.log(
+            "batch head = %d ; queue head = %d ; queue tail = %d",
+            _batch.head,
+            _requestQueue.head,
+            _requestQueue.tail
+        );
     }
 }
