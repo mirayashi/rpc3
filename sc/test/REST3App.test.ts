@@ -3,6 +3,7 @@ import { expect } from "chai"
 import { ethers } from "hardhat"
 import { batchResult1, batchResult2, batchResult3 } from "./utils/batchResult"
 import expectThatCurrentBatchHas from "./utils/expectThatCurrentBatchHas"
+import { Wallet } from "ethers"
 
 function toStruct(obj: Object) {
   return Object.assign(Object.values(obj), obj)
@@ -29,7 +30,7 @@ describe("REST3App", function () {
       defaultRequestCost: ethers.BigNumber.from(1),
       requestMaxTtl: ethers.BigNumber.from(20),
       minStake: ethers.utils.parseEther("1"),
-      consensusMaxDuration: ethers.BigNumber.from(10),
+      consensusMaxDuration: ethers.BigNumber.from(600),
       consensusQuorumPercent: ethers.BigNumber.from(75),
       consensusRatioPercent: ethers.BigNumber.from(51),
       inactivityDuration: ethers.BigNumber.from(3600),
@@ -363,7 +364,7 @@ describe("REST3App", function () {
         "BatchResultRecorded"
       )
 
-      await time.increase(12)
+      await time.increase(600)
 
       await expect(contract.connect(user2).submitBatchResult(batchResult1(0, owner.address))).to.emit(
         contract,
@@ -772,11 +773,54 @@ describe("REST3App", function () {
     })
   })
 
-  describe.only("Gas limit performance tests", () => {
-    it("Should handle large amount of data without exploding gas limit", async () => {
-      const { contract } = await loadFixture(deploy)
-      console.log((await ethers.getSigners()).length)
-      for (let i = 0; i < 10000; i++) {}
+  describe("Gas limit performance tests", () => {
+    async function playScenario(servers: number, requestsPerBatch: number) {
+      const { contract, owner } = await loadFixture(deploy)
+      const wallets: Wallet[] = []
+      for (let i = 0; i < servers; i++) {
+        const wallet = ethers.Wallet.createRandom().connect(ethers.provider)
+        await owner.sendTransaction({ to: wallet.address, value: ethers.utils.parseEther("20") })
+        wallets.push(wallet)
+        await contract.connect(wallet).serverRegister({ value: ethers.utils.parseEther("1") })
+        await time.increase(604800)
+      }
+      expect(await contract.getServerCount()).to.equal(servers)
+      console.log("Registered %d servers", servers)
+      await time.increase(3600)
+
+      let requestId = 0
+
+      async function sendRequest() {
+        const id = `request_${++requestId}`
+        await contract.sendRequest(id)
+        console.log("Sent %s", id)
+      }
+
+      // First requests initializes a batch of 1
+      const promises = []
+      for (let i = 0; i < requestsPerBatch + 1; i++) {
+        promises.push(sendRequest())
+      }
+      await Promise.allSettled(promises)
+
+      const batchNonce = (await contract.connect(wallets[0]).getCurrentBatch()).nonce.toNumber()
+      await Promise.allSettled(
+        wallets.map(async (wallet, i) => {
+          await contract.connect(wallet).submitBatchResult(batchResult1(batchNonce, owner.address))
+          console.log("Wallet %d submitted result for batch %d", i, batchNonce)
+        })
+      )
+
+      await contract.connect(wallets[0]).housekeepInactive()
+      expect(await contract.getServerCount()).to.equal(Math.floor(servers * 0.75))
+    }
+
+    it.only("Should handle 50 servers and 500 requests per batch without exploding gas limit", async () => {
+      await playScenario(50, 500)
+    })
+
+    it("Should handle 300 servers and 6000 requests per batch without exploding gas limit", async () => {
+      await playScenario(300, 6000)
     })
   })
 })
