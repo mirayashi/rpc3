@@ -24,7 +24,7 @@ struct BatchRange {
 struct BatchResult {
     uint nonce;
     string finalStateIpfsHash;
-    Response[] responses;
+    string[] responses;
 }
 
 struct Consensus {
@@ -33,6 +33,7 @@ struct Consensus {
     mapping(bytes32 => uint) countByResult;
     address[] serversWhoParticipated;
     bytes32 resultWithLargestCount;
+    bool completed;
 }
 
 struct GlobalParams {
@@ -48,7 +49,6 @@ struct GlobalParams {
 }
 
 struct Request {
-    uint nonce;
     string ipfsHash;
     address author;
 }
@@ -59,16 +59,15 @@ struct RequestQueue {
     uint tail;
 }
 
-struct Response {
-    uint requestNonce;
-    string ipfsHash;
-    address author;
-}
-
 struct Server {
     address addr;
     uint stake;
     uint contributions;
     uint lastSeen;
     uint nextHousekeepAt;
+}
+
+struct StoredBatchResult {
+    string finalStateIpfsHash;
+    mapping(uint => string) responses;
 }

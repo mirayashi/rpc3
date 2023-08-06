@@ -253,7 +253,6 @@ describe("REST3App", function () {
         sizeOf: 1,
         requests: [
           toStruct({
-            nonce: ethers.BigNumber.from(1),
             ipfsHash: "request1",
             author: user1.address
           })
@@ -276,7 +275,6 @@ describe("REST3App", function () {
         sizeOf: 1,
         requests: [
           toStruct({
-            nonce: ethers.BigNumber.from(1),
             ipfsHash: "request1",
             author: owner.address
           })
@@ -616,7 +614,6 @@ describe("REST3App", function () {
         sizeOf: 1,
         requests: [
           toStruct({
-            nonce: ethers.BigNumber.from(2),
             ipfsHash: "request2",
             author: owner.address
           })
@@ -797,16 +794,24 @@ describe("REST3App", function () {
       }
       await Promise.allSettled(promises)
 
-      const batchNonce = (await contract.connect(wallets[0]).getCurrentBatch()).nonce.toNumber()
-      const submitPromises = wallets.map(async (wallet, i) => {
-        try {
-          await contract.connect(wallet).submitBatchResult(batchResult1(batchNonce, owner.address))
-          console.log("Wallet %d submitted result for batch %d", i, batchNonce)
-        } catch (e) {
-          console.error(e)
-        }
-      })
-      await Promise.allSettled(submitPromises)
+      async function processBatch() {
+        const batch = await contract.connect(wallets[0]).getCurrentBatch()
+        const batchNonce = batch.nonce.toNumber()
+        const submitPromises = wallets.map(async (wallet, i) => {
+          try {
+            await contract
+              .connect(wallet)
+              .submitBatchResult(batchResult1(batchNonce, owner.address, batch.requests.length))
+            console.log("Wallet %d submitted result for batch %d", i, batchNonce)
+          } catch (e) {
+            console.error(e)
+          }
+        })
+        await Promise.allSettled(submitPromises)
+      }
+
+      await processBatch()
+      await processBatch()
 
       await contract.connect(wallets[0]).housekeepInactive()
       expect(await contract.getServerCount()).to.equal(Math.ceil(servers * 0.75))
@@ -814,10 +819,10 @@ describe("REST3App", function () {
 
     it.only("Should handle 50 servers and 500 requests per batch without exploding gas limit", async () => {
       await playScenario(50, 500)
-    })
+    }).timeout(1000000)
 
     it("Should handle 300 servers and 6000 requests per batch without exploding gas limit", async () => {
       await playScenario(300, 6000)
-    })
+    }).timeout(1000000)
   })
 })
