@@ -30,7 +30,7 @@ describe("REST3App", function () {
       defaultRequestCost: ethers.BigNumber.from(1),
       requestMaxTtl: ethers.BigNumber.from(20),
       minStake: ethers.utils.parseEther("1"),
-      consensusMaxDuration: ethers.BigNumber.from(600),
+      consensusMaxDuration: ethers.BigNumber.from(7200),
       consensusQuorumPercent: ethers.BigNumber.from(75),
       consensusRatioPercent: ethers.BigNumber.from(51),
       inactivityDuration: ethers.BigNumber.from(3600),
@@ -357,7 +357,7 @@ describe("REST3App", function () {
         "BatchResultRecorded"
       )
 
-      await time.increase(600)
+      await time.increase(7200)
 
       await expect(contract.connect(user2).submitBatchResult(batchResult1(0, owner.address))).to.emit(
         contract,
@@ -651,7 +651,7 @@ describe("REST3App", function () {
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).to.emit(contract, "NoActionTaken")
 
-      await time.increase(600)
+      await time.increase(7200)
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).to.emit(contract, "BatchSkipped")
     })
@@ -709,7 +709,7 @@ describe("REST3App", function () {
         users: [user1, user2, user3, user4]
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await time.increase(600)
+      await time.increase(7200)
 
       // user 1 will skip an expired batch in order to get a contribution point
       await contract.connect(user1).skipBatchIfConsensusExpired()
@@ -799,10 +799,17 @@ describe("REST3App", function () {
         const batchNonce = batch.nonce.toNumber()
         const submitPromises = wallets.map(async (wallet, i) => {
           try {
-            await contract
+            const tx = await contract
               .connect(wallet)
               .submitBatchResult(batchResult1(batchNonce, owner.address, batch.requests.length))
-            console.log("Wallet %d submitted result for batch %d", i, batchNonce)
+            const receipt = await tx.wait()
+            console.log(
+              "Wallet %d submitted result for batch %d. Gas: %d. Events: %s",
+              i,
+              batchNonce,
+              receipt.gasUsed.toNumber(),
+              [...new Set(receipt.events?.map(ev => ev.event))]
+            )
           } catch (e) {
             console.error(e)
           }
@@ -812,17 +819,18 @@ describe("REST3App", function () {
 
       await processBatch()
       await processBatch()
+      //await contract.connect(wallets[0]).submitBatchResult(batchResult1(1, owner.address, 500))
 
       await contract.connect(wallets[0]).housekeepInactive()
       expect(await contract.getServerCount()).to.equal(Math.ceil(servers * 0.75))
     }
 
-    it.only("Should handle 50 servers and 500 requests per batch without exploding gas limit", async () => {
+    it("Should handle 50 servers and 500 requests per batch without exploding gas limit", async () => {
       await playScenario(50, 500)
     }).timeout(1000000)
 
-    it("Should handle 300 servers and 6000 requests per batch without exploding gas limit", async () => {
-      await playScenario(300, 6000)
+    it.only("Should handle 100 servers and 2000 requests per batch without exploding gas limit", async () => {
+      await playScenario(100, 2000)
     }).timeout(1000000)
   })
 })

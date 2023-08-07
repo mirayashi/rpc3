@@ -15,7 +15,7 @@ library StakeLib {
         uint lastStakedAt;
     }
 
-    function tryStake(Stake storage self) public returns (bool) {
+    function tryStake(Stake storage self) internal returns (bool) {
         uint amount = calculateAmount(self);
         if (msg.value < amount) {
             return false;
@@ -25,7 +25,7 @@ library StakeLib {
         return true;
     }
 
-    function calculateAmount(Stake storage self) public view returns (uint) {
+    function calculateAmount(Stake storage self) internal view returns (uint) {
         if (self.baseAmount == 0) {
             return self.minAmount;
         }
