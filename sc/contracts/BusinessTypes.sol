@@ -38,6 +38,8 @@ struct Consensus {
     uint targetQuorum;
     uint targetRatio;
     uint maxDuration;
+    uint8 randomBackoffMin;
+    uint8 randomBackoffMax;
     mapping(address => bytes32) resultsByServer;
     mapping(bytes32 => uint) countByResult;
     mapping(address => uint8) randomBackoffs;
@@ -49,14 +51,16 @@ struct Consensus {
 
 struct GlobalParams {
     uint defaultRequestCost;
-    uint requestMaxTtl;
     uint minStake;
     uint consensusMaxDuration;
     uint consensusQuorumPercent;
     uint consensusRatioPercent;
     uint inactivityDuration;
-    uint16 housekeepReward;
     uint slashPercent;
+    uint16 housekeepReward;
+    uint16 revealReward;
+    uint8 randomBackoffMin;
+    uint8 randomBackoffMax;
 }
 
 struct Request {
@@ -84,6 +88,5 @@ struct Server {
 
 struct RevealedBatchResult {
     bool exists;
-    string finalStateIpfsHash;
     Response[] responses;
 }

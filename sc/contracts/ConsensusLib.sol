@@ -12,12 +12,31 @@ enum ConsensusState {
 }
 
 library ConsensusLib {
+    function _rand(uint8 min, uint8 max) private view returns (uint8) {
+        uint8 range = max - min;
+        return (uint8(bytes1(Sapphire.randomBytes(1, ""))) % range) + min;
+    }
+
+    /**
+     * A randomly elected priority server will have its random backoff
+     * set to zero.
+     */
+    function _electPriorityServer(Consensus storage consensus) private {
+        uint randIndex = uint(bytes32(Sapphire.randomBytes(32, ""))) %
+            consensus.serversWhoParticipated.length;
+        address elected = consensus.serversWhoParticipated[randIndex];
+        consensus.randomBackoffs[elected] = 0;
+    }
+
     function submitResultHash(
         Consensus storage self,
         bytes32 resultHash
     ) internal returns (ConsensusState) {
         self.resultsByServer[msg.sender] = resultHash;
-        uint8 randomBackoff = uint8(Sapphire.randomBytes(1, "")[0]) % 24;
+        uint8 randomBackoff = _rand(
+            self.randomBackoffMin,
+            self.randomBackoffMax
+        );
         self.randomBackoffs[msg.sender] = randomBackoff;
         self.serversWhoParticipated.push(msg.sender);
         uint count = ++self.countByResult[resultHash];
@@ -34,6 +53,7 @@ library ConsensusLib {
                     self.serversWhoParticipated.length >=
                 self.targetRatio
             ) {
+                _electPriorityServer(self);
                 self.reachedAt = block.timestamp;
                 state = ConsensusState.SUCCESS;
             } else {
@@ -43,8 +63,10 @@ library ConsensusLib {
         return state;
     }
 
-    function isExpired(Consensus storage self) internal view returns (bool) {
-        return block.timestamp - self.startedAt > self.maxDuration;
+    function isActive(Consensus storage self) internal view returns (bool) {
+        return
+            !self.completed &&
+            block.timestamp - self.startedAt <= self.maxDuration;
     }
 
     function hasParticipated(

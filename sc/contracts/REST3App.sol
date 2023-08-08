@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Sapphire} from "@oasisprotocol/sapphire-contracts/contracts/Sapphire.sol";
 
 import "./BusinessTypes.sol";
 import {StakeLib} from "./StakeLib.sol";
@@ -27,7 +26,6 @@ contract REST3App {
     RequestQueue private _requestQueue;
 
     Batch private _batch;
-    uint _batchNonceGenerator;
     mapping(uint => Consensus) private _consensus;
     mapping(bytes32 => RevealedBatchResult) private _batchResults;
     mapping(uint => bytes32) private _mapBatchNonceToResultHash;
@@ -45,27 +43,24 @@ contract REST3App {
         if (batchNonce > _batch.nonce) {
             revert InvalidBatchNonce();
         }
-        Consensus storage consensus = _consensus[batchNonce];
-        if (consensus.completed || consensus.isExpired()) {
-            revert ConsensusExpiredOrCompleted();
+        if (!_consensus[batchNonce].isActive()) {
+            revert ConsensusNotActive();
         }
         _;
     }
 
     event BatchCompleted(uint indexed batchNonce);
     event BatchFailed(uint indexed batchNonce);
-    event BatchResultIgnored();
-    event BatchResultRecorded();
+    event BatchResultHashSubmitted();
     event ConsensusReached(bytes32 indexed resultHash);
     event HousekeepSuccess(uint nextHousekeepTimestamp);
     event NextBatchReady();
-    event NoActionTaken();
     event RequestSubmitted(uint indexed requestNonce, uint indexed batchNonce);
     event ServerRegistered(address indexed addr);
     event ServerUnregistered(address indexed addr);
 
-    error BatchSizeMismatch(uint expectedSize);
-    error ConsensusExpiredOrCompleted();
+    error AwaitingResultReveal();
+    error ConsensusNotActive();
     error ConsensusNotReached();
     error EmptyBatch();
     error HousekeepCooldown(uint nextHousekeepTimestamp);
@@ -87,9 +82,6 @@ contract REST3App {
         globalParams = globalParams_;
         _stake.minAmount = globalParams.minStake;
         _batch.initialStateIpfsHash = stateIpfsHash;
-        _requestQueue.head = 1;
-        _requestQueue.tail = 1;
-        _batch.head = 1;
     }
 
     receive() external payable {
@@ -193,6 +185,47 @@ contract REST3App {
         return batchView;
     }
 
+    function hashResult(
+        BatchResult calldata result
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(result));
+    }
+
+    /**
+     * Submit the result hash for a specific batch. Result is taken into
+     * account if and only if:
+     * - Provided batch nonce is valid
+     * - Result has not already been submitted
+     * - Consensus has not expired
+     */
+    function submitBatchResultHash(
+        uint batchNonce,
+        bytes32 resultHash
+    ) external onlyRegistered activeConsensus(batchNonce) {
+        Consensus storage consensus = _consensus[batchNonce];
+        if (consensus.reachedAt != 0) {
+            revert AwaitingResultReveal();
+        }
+        if (consensus.hasParticipated(msg.sender)) {
+            revert ResultAlreadySubmitted();
+        }
+        ConsensusState state = consensus.submitResultHash(resultHash);
+        if (state == ConsensusState.SUCCESS) {
+            emit ConsensusReached(resultHash);
+        } else if (state == ConsensusState.FAILED) {
+            _handleConsensusFailed(consensus);
+        }
+        _servers[msg.sender].lastSeen = block.timestamp;
+        emit BatchResultHashSubmitted();
+    }
+
+    /**
+     * Reveal actual data of a batch result after consensus has been reached.
+     * A backoff system exists so servers don't compete to be the first one to
+     * call this function. Instead the smart contract decides who may be the
+     * first one to call it (one server is randomly elected and won't have a
+     * backoff).
+     */
     function revealBatchResult(
         BatchResult calldata result
     ) external onlyRegistered activeConsensus(result.nonce) {
@@ -206,86 +239,63 @@ contract REST3App {
         ) {
             revert NotYetTimeToReveal();
         }
-        bytes32 resultHash = keccak256(abi.encode(result));
-        if (resultHash != consensus.resultWithLargestCount) {
+        bytes32 resultHash = hashResult(result);
+        if (
+            resultHash != consensus.resultWithLargestCount ||
+            resultHash != consensus.resultsByServer[msg.sender]
+        ) {
             revert ResultHashMismatch();
         }
         RevealedBatchResult storage revealedResult = _batchResults[resultHash];
-        if (!revealedResult.exists) {
-            revealedResult.exists = true;
-            revealedResult.finalStateIpfsHash = result.finalStateIpfsHash;
-            for (uint i = 0; i < result.responseIpfsHashes.length; i++) {
-                Response storage res = revealedResult.responses.push();
-                res.ipfsHash = result.responseIpfsHashes[i];
-            }
-            _batch.initialStateIpfsHash = _batchResults[resultHash]
-                .finalStateIpfsHash;
-            _mapBatchNonceToResultHash[result.nonce] = resultHash;
-            consensus.processContributions(
-                resultHash,
-                _serverInMajority,
-                _serverInMinority
-            );
-            consensus.completed = true;
-            emit BatchCompleted(result.nonce);
-            _prepareNextBatch();
+        if (revealedResult.exists) return;
+        revealedResult.exists = true;
+        for (uint i = 0; i < result.responseIpfsHashes.length; i++) {
+            Response storage res = revealedResult.responses.push();
+            res.ipfsHash = result.responseIpfsHashes[i];
         }
-    }
-
-    /**
-     * Submit the result hash for a specific batch. Result is taken into account if and only if:
-     * - Provided batch nonce is valid
-     * - Result has not already been submitted
-     * - Consensus has not expired
-     */
-    function submitBatchResultHash(
-        uint batchNonce,
-        bytes32 resultHash
-    ) external onlyRegistered activeConsensus(batchNonce) {
-        if (batchNonce > _batch.nonce) {
-            revert InvalidBatchNonce();
-        }
-        Consensus storage consensus = _consensus[batchNonce];
-        if (consensus.hasParticipated(msg.sender)) {
-            revert ResultAlreadySubmitted();
-        }
-        ConsensusState state = consensus.submitResultHash(resultHash);
-        if (state == ConsensusState.SUCCESS) {
-            emit ConsensusReached(resultHash);
-        } else if (state == ConsensusState.FAILED) {
-            consensus.completed = true;
-            emit BatchFailed(_batch.nonce);
-            _prepareNextBatch();
-        }
+        _batch.initialStateIpfsHash = result.finalStateIpfsHash;
+        _mapBatchNonceToResultHash[result.nonce] = resultHash;
+        consensus.processContributions(
+            resultHash,
+            _serverInMajority,
+            _serverInMinority
+        );
+        _giveContributionPoints(
+            _servers[msg.sender],
+            globalParams.revealReward
+        );
         _servers[msg.sender].lastSeen = block.timestamp;
-        emit BatchResultRecorded();
+        consensus.completed = true;
+        emit BatchCompleted(result.nonce);
+        _prepareNextBatch();
     }
 
     function getResultRevealTimestamp(
         uint batchNonce
     ) external view onlyRegistered activeConsensus(batchNonce) returns (uint) {
         Consensus storage consensus = _consensus[batchNonce];
+        if (consensus.reachedAt == 0) {
+            revert ConsensusNotReached();
+        }
         if (!consensus.hasParticipated(msg.sender)) {
             revert NotAConsensusParticipant();
         }
-        return consensus.randomBackoffs[msg.sender];
+        return consensus.reachedAt + consensus.randomBackoffs[msg.sender];
     }
 
     /**
      * Servers are expected to call this function when the consensus of the current batch
      * has expired. This is so the protocol doesn't get stuck if nobody is submitting
-     * responses after batch expiration. One that successfully skips a batch via this function
+     * results after batch expiration. One that successfully skips a batch via this function
      * receives a contribution point.
      */
     function skipBatchIfConsensusExpired() external onlyRegistered {
         uint batchNonce = _batch.nonce;
         Consensus storage consensus = _consensus[batchNonce];
-        if (!consensus.completed && consensus.isExpired()) {
-            emit BatchFailed(batchNonce);
-            _prepareNextBatch();
+        if (!consensus.isActive()) {
+            _handleConsensusFailed(consensus);
             _giveContributionPoints(_servers[msg.sender], 1);
-        } else {
-            emit NoActionTaken();
+            _servers[msg.sender].lastSeen = block.timestamp;
         }
     }
 
@@ -329,6 +339,7 @@ contract REST3App {
             _unregister(inactiveServers[i]);
         }
         _giveContributionPoints(server, globalParams.housekeepReward);
+        _servers[msg.sender].lastSeen = block.timestamp;
         _setNextHousekeepTimestamp(server);
         emit HousekeepSuccess(server.nextHousekeepAt);
     }
@@ -363,15 +374,11 @@ contract REST3App {
      * then call this function.
      */
     function getResponse(uint nonce) external view returns (string memory) {
-        string memory r = _retrieveResponseFromNonce(nonce);
         address author = _requestQueue.queue[nonce].author;
-        if (author == address(0)) {
-            revert ResponseNotAvailable();
-        }
         if (author != msg.sender) {
             revert RequestAuthorMismatch();
         }
-        return r;
+        return _retrieveResponseFromNonce(nonce);
     }
 
     // --------------
@@ -388,10 +395,11 @@ contract REST3App {
         BatchCoordinates storage coords = _mapRequestNonceToBatchCoordinates[
             nonce
         ];
-        return
-            _batchResults[_mapBatchNonceToResultHash[coords.batchNonce]]
-                .responses[coords.position]
-                .ipfsHash;
+        bytes32 resultHash = _mapBatchNonceToResultHash[coords.batchNonce];
+        if (resultHash == bytes32(0)) {
+            revert ResponseNotAvailable();
+        }
+        return _batchResults[resultHash].responses[coords.position].ipfsHash;
     }
 
     function _queueRequest(string calldata requestIpfsHash) internal {
@@ -421,19 +429,26 @@ contract REST3App {
     function _prepareNextBatch() internal {
         uint oldHead = _requestQueue.head;
         uint newHead = Math.min(oldHead + BATCH_SIZE, _requestQueue.tail);
+        _batch.head = oldHead;
+        _requestQueue.head = newHead;
         if (newHead - oldHead > 0) {
-            _batch.head = oldHead;
-            _requestQueue.head = newHead;
-            uint nonce = _batchNonceGenerator++;
-            _batch.nonce = nonce;
+            uint nonce = ++_batch.nonce;
             Consensus storage consensus = _consensus[nonce];
             consensus.startedAt = block.timestamp;
             consensus.totalServers = _serverSet.length();
             consensus.targetQuorum = globalParams.consensusQuorumPercent;
             consensus.targetRatio = globalParams.consensusRatioPercent;
             consensus.maxDuration = globalParams.consensusMaxDuration;
+            consensus.randomBackoffMin = globalParams.randomBackoffMin;
+            consensus.randomBackoffMax = globalParams.randomBackoffMax;
             emit NextBatchReady();
         }
+    }
+
+    function _handleConsensusFailed(Consensus storage consensus) internal {
+        consensus.completed = true;
+        emit BatchFailed(_batch.nonce);
+        _prepareNextBatch();
     }
 
     function _serverInMajority(address addr) internal {
@@ -468,7 +483,6 @@ contract REST3App {
             server.contributions = newContrib;
             totalContributions += newContrib - oldContrib;
         }
-        server.lastSeen = block.timestamp;
     }
 
     function _resetContributionPoints(Server storage server) internal {
