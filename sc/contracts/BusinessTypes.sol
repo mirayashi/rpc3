@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 uint constant BATCH_SIZE = 2000;
+uint constant MAX_SERVERS = 200;
 
 struct Batch {
     uint nonce;
@@ -35,17 +36,12 @@ struct BatchResult {
 struct Consensus {
     uint startedAt;
     uint totalServers;
-    uint targetQuorum;
-    uint targetRatio;
-    uint maxDuration;
-    uint8 randomBackoffMin;
-    uint8 randomBackoffMax;
     mapping(address => bytes32) resultsByServer;
     mapping(bytes32 => uint) countByResult;
     mapping(address => uint8) randomBackoffs;
-    address[] serversWhoParticipated;
+    mapping(uint => address) serversWhoParticipated;
+    uint numberOfParticipants;
     bytes32 resultWithLargestCount;
-    bool completed;
     uint reachedAt;
 }
 
@@ -88,5 +84,5 @@ struct Server {
 
 struct RevealedBatchResult {
     bool exists;
-    Response[] responses;
+    mapping(uint => Response) responses;
 }

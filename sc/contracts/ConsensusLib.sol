@@ -23,35 +23,36 @@ library ConsensusLib {
      */
     function _electPriorityServer(Consensus storage consensus) private {
         uint randIndex = uint(bytes32(Sapphire.randomBytes(32, ""))) %
-            consensus.serversWhoParticipated.length;
+            consensus.numberOfParticipants;
         address elected = consensus.serversWhoParticipated[randIndex];
         consensus.randomBackoffs[elected] = 0;
     }
 
     function submitResultHash(
         Consensus storage self,
+        GlobalParams storage globalParams,
         bytes32 resultHash
     ) internal returns (ConsensusState) {
         self.resultsByServer[msg.sender] = resultHash;
         uint8 randomBackoff = _rand(
-            self.randomBackoffMin,
-            self.randomBackoffMax
+            globalParams.randomBackoffMin,
+            globalParams.randomBackoffMax
         );
         self.randomBackoffs[msg.sender] = randomBackoff;
-        self.serversWhoParticipated.push(msg.sender);
+        self.serversWhoParticipated[self.numberOfParticipants++] = msg.sender;
         uint count = ++self.countByResult[resultHash];
         if (count > self.countByResult[self.resultWithLargestCount]) {
             self.resultWithLargestCount = resultHash;
         }
         ConsensusState state = ConsensusState.ONGOING;
         if (
-            (self.serversWhoParticipated.length * 100) / self.totalServers >=
-            self.targetQuorum
+            (self.numberOfParticipants * 100) / self.totalServers >=
+            globalParams.consensusQuorumPercent
         ) {
             if (
                 (self.countByResult[self.resultWithLargestCount] * 100) /
-                    self.serversWhoParticipated.length >=
-                self.targetRatio
+                    self.numberOfParticipants >=
+                globalParams.consensusRatioPercent
             ) {
                 _electPriorityServer(self);
                 self.reachedAt = block.timestamp;
@@ -63,10 +64,13 @@ library ConsensusLib {
         return state;
     }
 
-    function isActive(Consensus storage self) internal view returns (bool) {
+    function isActive(
+        Consensus storage self,
+        GlobalParams storage globalParams
+    ) internal view returns (bool) {
         return
-            !self.completed &&
-            block.timestamp - self.startedAt <= self.maxDuration;
+            block.timestamp - self.startedAt <=
+            globalParams.consensusMaxDuration;
     }
 
     function hasParticipated(
@@ -82,7 +86,7 @@ library ConsensusLib {
         function(address) callbackInMajority,
         function(address) callbackInMinority
     ) internal {
-        uint participantsCount = self.serversWhoParticipated.length;
+        uint participantsCount = self.numberOfParticipants;
         for (uint i = 0; i < participantsCount; i++) {
             address addr = self.serversWhoParticipated[i];
             bytes32 resultOfServer = self.resultsByServer[addr];

@@ -43,7 +43,7 @@ contract REST3App {
         if (batchNonce > _batch.nonce) {
             revert InvalidBatchNonce();
         }
-        if (!_consensus[batchNonce].isActive()) {
+        if (!_consensus[batchNonce].isActive(globalParams)) {
             revert ConsensusNotActive();
         }
         _;
@@ -66,6 +66,7 @@ contract REST3App {
     error HousekeepCooldown(uint nextHousekeepTimestamp);
     error InsufficientStake();
     error InvalidBatchNonce();
+    error MaxServersReached();
     error NotAConsensusParticipant();
     error ResultAlreadySubmitted();
     error NotYetTimeToReveal();
@@ -117,6 +118,9 @@ contract REST3App {
         Server storage s = _servers[msg.sender];
         if (s.addr == msg.sender) {
             revert ServerAlreadyRegistered();
+        }
+        if (_serverSet.length() >= MAX_SERVERS) {
+            revert MaxServersReached();
         }
         if (!_stake.tryStake()) {
             revert InsufficientStake();
@@ -185,6 +189,9 @@ contract REST3App {
         return batchView;
     }
 
+    /**
+     * Get the hash of a batch result.
+     */
     function hashResult(
         BatchResult calldata result
     ) public pure returns (bytes32) {
@@ -209,11 +216,14 @@ contract REST3App {
         if (consensus.hasParticipated(msg.sender)) {
             revert ResultAlreadySubmitted();
         }
-        ConsensusState state = consensus.submitResultHash(resultHash);
+        ConsensusState state = consensus.submitResultHash(
+            globalParams,
+            resultHash
+        );
         if (state == ConsensusState.SUCCESS) {
             emit ConsensusReached(resultHash);
         } else if (state == ConsensusState.FAILED) {
-            _handleConsensusFailed(consensus);
+            _handleConsensusFailed();
         }
         _servers[msg.sender].lastSeen = block.timestamp;
         emit BatchResultHashSubmitted();
@@ -250,7 +260,7 @@ contract REST3App {
         if (revealedResult.exists) return;
         revealedResult.exists = true;
         for (uint i = 0; i < result.responseIpfsHashes.length; i++) {
-            Response storage res = revealedResult.responses.push();
+            Response storage res = revealedResult.responses[i];
             res.ipfsHash = result.responseIpfsHashes[i];
         }
         _batch.initialStateIpfsHash = result.finalStateIpfsHash;
@@ -265,7 +275,7 @@ contract REST3App {
             globalParams.revealReward
         );
         _servers[msg.sender].lastSeen = block.timestamp;
-        consensus.completed = true;
+        _deleteConsensus(result.nonce);
         emit BatchCompleted(result.nonce);
         _prepareNextBatch();
     }
@@ -292,8 +302,8 @@ contract REST3App {
     function skipBatchIfConsensusExpired() external onlyRegistered {
         uint batchNonce = _batch.nonce;
         Consensus storage consensus = _consensus[batchNonce];
-        if (!consensus.isActive()) {
-            _handleConsensusFailed(consensus);
+        if (!consensus.isActive(globalParams)) {
+            _handleConsensusFailed();
             _giveContributionPoints(_servers[msg.sender], 1);
             _servers[msg.sender].lastSeen = block.timestamp;
         }
@@ -415,7 +425,7 @@ contract REST3App {
         uint nonce
     ) internal returns (uint) {
         uint queueHead = _requestQueue.head;
-        uint queueTail = _requestQueue.tail;
+        uint queueTail = nonce + 1;
         uint queueSize = queueTail - queueHead;
         BatchCoordinates storage coords = _mapRequestNonceToBatchCoordinates[
             nonce
@@ -429,6 +439,9 @@ contract REST3App {
     function _prepareNextBatch() internal {
         uint oldHead = _requestQueue.head;
         uint newHead = Math.min(oldHead + BATCH_SIZE, _requestQueue.tail);
+        for (uint i = _batch.head; i < oldHead; i++) {
+            delete _requestQueue.queue[i]; // gas refund
+        }
         _batch.head = oldHead;
         _requestQueue.head = newHead;
         if (newHead - oldHead > 0) {
@@ -436,18 +449,26 @@ contract REST3App {
             Consensus storage consensus = _consensus[nonce];
             consensus.startedAt = block.timestamp;
             consensus.totalServers = _serverSet.length();
-            consensus.targetQuorum = globalParams.consensusQuorumPercent;
-            consensus.targetRatio = globalParams.consensusRatioPercent;
-            consensus.maxDuration = globalParams.consensusMaxDuration;
-            consensus.randomBackoffMin = globalParams.randomBackoffMin;
-            consensus.randomBackoffMax = globalParams.randomBackoffMax;
             emit NextBatchReady();
         }
     }
 
-    function _handleConsensusFailed(Consensus storage consensus) internal {
-        consensus.completed = true;
-        emit BatchFailed(_batch.nonce);
+    function _deleteConsensus(uint batchNonce) internal {
+        Consensus storage consensus = _consensus[batchNonce];
+        uint size = consensus.numberOfParticipants;
+        for (uint i = 0; i < size; i++) {
+            address addr = consensus.serversWhoParticipated[i];
+            delete consensus.resultsByServer[addr];
+            delete consensus.randomBackoffs[addr];
+            delete consensus.serversWhoParticipated[i];
+        }
+        delete _consensus[batchNonce];
+    }
+
+    function _handleConsensusFailed() internal {
+        uint batchNonce = _batch.nonce;
+        _deleteConsensus(batchNonce);
+        emit BatchFailed(batchNonce);
         _prepareNextBatch();
     }
 
