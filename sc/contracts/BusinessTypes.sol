@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 uint constant BATCH_SIZE = 2000;
 uint constant MAX_SERVERS = 200;
+uint constant IPFS_HASH_PACKED_SIZE = 34;
 
 struct Batch {
     uint nonce;
@@ -29,8 +30,8 @@ struct BatchRange {
 
 struct BatchResult {
     uint nonce;
+    bytes encodedResponses;
     IPFSMultihash finalStateIpfsHash;
-    IPFSMultihash[] responses;
 }
 
 struct Consensus {
@@ -45,9 +46,8 @@ struct Consensus {
 }
 
 struct IPFSMultihash {
+    bytes32 header;
     bytes32 digest;
-    uint8 hashFunction;
-    uint8 size;
 }
 
 struct GlobalParams {

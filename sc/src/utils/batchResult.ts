@@ -3,15 +3,16 @@ import multihash, { Multihash } from "./multihash"
 interface Result {
   nonce: number
   finalStateIpfsHash: Multihash
-  responses: Array<Multihash>
+  encodedResponses: Uint8Array
 }
 
 function batchResult(id: string, nonce: number, count: number = 1): Result {
-  const multihashes = [...Array(count).keys()].map(() => multihash.generate(`some response`))
   return {
     nonce,
     finalStateIpfsHash: multihash.generate(id),
-    responses: multihashes
+    encodedResponses: [...Array(count).keys()]
+      .map(i => multihash.pack(multihash.generate(`some response ${i}`)))
+      .reduce((buf, hash) => Buffer.concat([buf, hash]), Buffer.alloc(0))
   }
 }
 

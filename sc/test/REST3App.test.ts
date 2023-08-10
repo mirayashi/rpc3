@@ -777,6 +777,11 @@ describe("REST3App", function () {
         const batch = await contract.connect(wallets[0]).getCurrentBatch()
         const batchNonce = batch.nonce.toNumber()
         const result = batchResult1(batchNonce, batch.requests.length)
+        const encodedResult = await contract.encodeResult(result)
+        console.log(`Result array: ${Buffer.from(result.encodedResponses).toString("hex").slice(0, 1000)}`)
+        console.log(
+          `Batch ${batchNonce} result: size = ${(encodedResult.length - 2) / 2}, data = ${encodedResult.slice(0, 1000)}`
+        )
         const resultHash = await contract.hashResult(result)
         const submitPromises = wallets.map(async (wallet, i) => {
           try {

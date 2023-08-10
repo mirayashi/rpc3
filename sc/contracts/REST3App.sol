@@ -183,7 +183,7 @@ contract REST3App {
             requests: new Request[](batchSize),
             expiresAt: startedAt + globalParams.consensusMaxDuration
         });
-        for (uint i; i < batchSize; i++) {
+        for (uint i; i < batchSize; ++i) {
             batchView.requests[i] = _requestQueue.queue[_batch.head + i];
         }
         return batchView;
@@ -230,6 +230,12 @@ contract REST3App {
         emit BatchResultHashSubmitted();
     }
 
+    function encodeResult(
+        BatchResult calldata result
+    ) public pure returns (bytes memory) {
+        return abi.encode(result);
+    }
+
     /**
      * Reveal actual data of a batch result after consensus has been reached.
      * A backoff system exists so servers don't compete to be the first one to
@@ -262,9 +268,15 @@ contract REST3App {
         ];
         if (revealedResult.exists) return;
         revealedResult.exists = true;
-        for (uint i; i < result.responses.length; i++) {
-            // Response storage res = revealedResult.responses[i];
-            // res.ipfsHash = result.responses[i];
+        uint offset;
+        uint i;
+        while (offset < result.encodedResponses.length) {
+            bytes calldata slice = result.encodedResponses[offset:offset +
+                IPFS_HASH_PACKED_SIZE];
+            Response storage res = revealedResult.responses[i];
+            res.ipfsHash.header = bytes32(slice[:2]);
+            res.ipfsHash.digest = bytes32(slice[2:]);
+            offset = ++i * IPFS_HASH_PACKED_SIZE;
         }
         _batch.initialStateIpfsHash = result.finalStateIpfsHash;
         consensus.processContributions(
@@ -308,7 +320,7 @@ contract REST3App {
         Consensus storage consensus = _consensus[batchNonce];
         if (!consensus.isActive(globalParams)) {
             _handleConsensusFailed();
-            _giveContributionPoints(_servers[msg.sender], 1);
+            _incContributionPoints(_servers[msg.sender]);
             _servers[msg.sender].lastSeen = block.timestamp;
         }
     }
@@ -339,7 +351,7 @@ contract REST3App {
             _serverSet.length() - 1 // - 1 because msg.sender cannot be in this array
         );
         uint inactiveIndex = 0;
-        for (uint i; i < _serverSet.length(); i++) {
+        for (uint i; i < _serverSet.length(); ++i) {
             address addr = _serverSet.at(i);
             if (addr == msg.sender) continue;
             uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
@@ -348,7 +360,7 @@ contract REST3App {
                 inactiveServers[inactiveIndex++] = addr;
             }
         }
-        for (uint i; i < inactiveIndex; i++) {
+        for (uint i; i < inactiveIndex; ++i) {
             _slash(inactiveServers[i]);
             _unregister(inactiveServers[i]);
         }
@@ -428,7 +440,7 @@ contract REST3App {
         (uint batchNonce, uint position) = _calculateAndSaveBatchCoordinates(
             requestNonce
         );
-        //_initResponseStorageAtPosition(batchNonce, position);
+        _initResponseStorageAtPosition(batchNonce, position);
         emit RequestSubmitted(requestNonce, batchNonce);
     }
 
@@ -450,7 +462,7 @@ contract REST3App {
 
     /**
      * Initializes response at coordinate with some value so writing actual
-     * response will consume a lot less gas
+     * response will consume less gas
      */
     function _initResponseStorageAtPosition(
         uint batchNonce,
@@ -459,10 +471,8 @@ contract REST3App {
         IPFSMultihash storage ipfsHash = _batchResults[batchNonce]
             .responses[position]
             .ipfsHash;
+        ipfsHash.header = bytes32(uint(1));
         ipfsHash.digest = bytes32(uint(1));
-        ipfsHash.hashFunction = 1;
-        // No need to set ipfsHash.size to 1 because it shares the same
-        // storage slot as ipfsHash.hashFunction.
     }
 
     function _prepareNextBatch() internal {
@@ -486,7 +496,7 @@ contract REST3App {
     }
 
     function _serverInMajority(address addr) internal {
-        _giveContributionPoints(_servers[addr], 1);
+        _incContributionPoints(_servers[addr]);
     }
 
     function _serverInMinority(address addr) internal {
@@ -509,6 +519,11 @@ contract REST3App {
     ) internal {
         server.contributions += points;
         totalContributions += points;
+    }
+
+    function _incContributionPoints(Server storage server) internal {
+        ++server.contributions;
+        ++totalContributions;
     }
 
     function _resetContributionPoints(Server storage server) internal {
