@@ -5,6 +5,10 @@
     "@oasisprotocol/sapphire-contracts": "^0.2.4",
     "@oasisprotocol/sapphire-hardhat": "~2.16.1",
     "@openzeppelin/contracts": "^4.9.2",
+    "@typescript-eslint/eslint-plugin": "^6.3.0",
+    "@typescript-eslint/parser": "^6.3.0",
+    "bs58": "^5.0.0",
+    "eslint": "^8.46.0",
     "hardhat": "~2.16.1",
     "solc": "~0.8.20"
   },

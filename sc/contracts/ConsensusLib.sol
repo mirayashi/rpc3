@@ -12,9 +12,9 @@ enum ConsensusState {
 }
 
 library ConsensusLib {
-    function _rand(uint8 min, uint8 max) private view returns (uint8) {
-        uint8 range = max - min;
-        return (uint8(bytes1(Sapphire.randomBytes(1, ""))) % range) + min;
+    function _rand(uint min, uint max) private view returns (uint) {
+        uint range = max - min;
+        return (uint(bytes32(Sapphire.randomBytes(32, ""))) % range) + min;
     }
 
     /**
@@ -31,10 +31,11 @@ library ConsensusLib {
     function submitResultHash(
         Consensus storage self,
         GlobalParams storage globalParams,
-        bytes32 resultHash
+        bytes32 resultHash,
+        uint totalServers
     ) internal returns (ConsensusState) {
         self.resultsByServer[msg.sender] = resultHash;
-        uint8 randomBackoff = _rand(
+        uint randomBackoff = _rand(
             globalParams.randomBackoffMin,
             globalParams.randomBackoffMax
         );
@@ -46,7 +47,7 @@ library ConsensusLib {
         }
         ConsensusState state = ConsensusState.ONGOING;
         if (
-            (self.numberOfParticipants * 100) / self.totalServers >=
+            (self.numberOfParticipants * 100) / totalServers >=
             globalParams.consensusQuorumPercent
         ) {
             if (
@@ -68,9 +69,9 @@ library ConsensusLib {
         Consensus storage self,
         GlobalParams storage globalParams
     ) internal view returns (bool) {
-        return
-            block.timestamp - self.startedAt <=
-            globalParams.consensusMaxDuration;
+        uint startedAt = self.startedAt;
+        if (startedAt == 0) return false;
+        return block.timestamp - startedAt <= globalParams.consensusMaxDuration;
     }
 
     function hasParticipated(
@@ -87,7 +88,7 @@ library ConsensusLib {
         function(address) callbackInMinority
     ) internal {
         uint participantsCount = self.numberOfParticipants;
-        for (uint i = 0; i < participantsCount; i++) {
+        for (uint i; i < participantsCount; i++) {
             address addr = self.serversWhoParticipated[i];
             bytes32 resultOfServer = self.resultsByServer[addr];
             if (resultOfServer == resultHash) {

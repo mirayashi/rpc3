@@ -27,8 +27,7 @@ contract REST3App {
 
     Batch private _batch;
     mapping(uint => Consensus) private _consensus;
-    mapping(bytes32 => RevealedBatchResult) private _batchResults;
-    mapping(uint => bytes32) private _mapBatchNonceToResultHash;
+    mapping(uint => RevealedBatchResult) private _batchResults;
     mapping(uint => BatchCoordinates)
         private _mapRequestNonceToBatchCoordinates;
 
@@ -78,7 +77,7 @@ contract REST3App {
 
     constructor(
         GlobalParams memory globalParams_,
-        string memory stateIpfsHash
+        IPFSMultihash memory stateIpfsHash
     ) {
         globalParams = globalParams_;
         _stake.minAmount = globalParams.minStake;
@@ -128,6 +127,7 @@ contract REST3App {
         s.addr = msg.sender;
         s.stake = msg.value;
         s.lastSeen = block.timestamp;
+        s.contributions = 1;
         _serverSet.add(msg.sender);
         _setNextHousekeepTimestamp(s);
         emit ServerRegistered(msg.sender);
@@ -183,7 +183,7 @@ contract REST3App {
             requests: new Request[](batchSize),
             expiresAt: startedAt + globalParams.consensusMaxDuration
         });
-        for (uint i = 0; i < batchSize; i++) {
+        for (uint i; i < batchSize; i++) {
             batchView.requests[i] = _requestQueue.queue[_batch.head + i];
         }
         return batchView;
@@ -218,7 +218,8 @@ contract REST3App {
         }
         ConsensusState state = consensus.submitResultHash(
             globalParams,
-            resultHash
+            resultHash,
+            _serverSet.length()
         );
         if (state == ConsensusState.SUCCESS) {
             emit ConsensusReached(resultHash);
@@ -256,15 +257,16 @@ contract REST3App {
         ) {
             revert ResultHashMismatch();
         }
-        RevealedBatchResult storage revealedResult = _batchResults[resultHash];
+        RevealedBatchResult storage revealedResult = _batchResults[
+            result.nonce
+        ];
         if (revealedResult.exists) return;
         revealedResult.exists = true;
-        for (uint i = 0; i < result.responseIpfsHashes.length; i++) {
-            Response storage res = revealedResult.responses[i];
-            res.ipfsHash = result.responseIpfsHashes[i];
+        for (uint i; i < result.responses.length; i++) {
+            // Response storage res = revealedResult.responses[i];
+            // res.ipfsHash = result.responses[i];
         }
         _batch.initialStateIpfsHash = result.finalStateIpfsHash;
-        _mapBatchNonceToResultHash[result.nonce] = resultHash;
         consensus.processContributions(
             resultHash,
             _serverInMajority,
@@ -275,7 +277,9 @@ contract REST3App {
             globalParams.revealReward
         );
         _servers[msg.sender].lastSeen = block.timestamp;
-        _deleteConsensus(result.nonce);
+        // Deleting the whole consensus struct is the most gas-efficient way to
+        // flip consensus.isActive() to false (resets startedAt to 0)
+        delete _consensus[result.nonce];
         emit BatchCompleted(result.nonce);
         _prepareNextBatch();
     }
@@ -335,7 +339,7 @@ contract REST3App {
             _serverSet.length() - 1 // - 1 because msg.sender cannot be in this array
         );
         uint inactiveIndex = 0;
-        for (uint i = 0; i < _serverSet.length(); i++) {
+        for (uint i; i < _serverSet.length(); i++) {
             address addr = _serverSet.at(i);
             if (addr == msg.sender) continue;
             uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
@@ -344,7 +348,7 @@ contract REST3App {
                 inactiveServers[inactiveIndex++] = addr;
             }
         }
-        for (uint i = 0; i < inactiveIndex; i++) {
+        for (uint i; i < inactiveIndex; i++) {
             _slash(inactiveServers[i]);
             _unregister(inactiveServers[i]);
         }
@@ -363,7 +367,9 @@ contract REST3App {
         onlyRegistered
         returns (Server memory)
     {
-        return _servers[msg.sender];
+        Server memory memServer = _servers[msg.sender];
+        memServer.contributions--; // Correct contribution count
+        return memServer;
     }
 
     /**
@@ -371,7 +377,7 @@ contract REST3App {
      * it is loaded immediately in a batch, otherwise it is enqueued and will be
      * processed in next batch.
      */
-    function sendRequest(string calldata requestIpfsHash) external {
+    function sendRequest(IPFSMultihash calldata requestIpfsHash) external {
         _queueRequest(requestIpfsHash);
         if (_batchSize() == 0) {
             _prepareNextBatch();
@@ -383,7 +389,9 @@ contract REST3App {
      * to listen to ResponseReceived events matching their request nonce and
      * then call this function.
      */
-    function getResponse(uint nonce) external view returns (string memory) {
+    function getResponse(
+        uint nonce
+    ) external view returns (IPFSMultihash memory) {
         address author = _requestQueue.queue[nonce].author;
         if (author != msg.sender) {
             revert RequestAuthorMismatch();
@@ -401,29 +409,32 @@ contract REST3App {
 
     function _retrieveResponseFromNonce(
         uint nonce
-    ) internal view returns (string storage) {
+    ) internal view returns (IPFSMultihash storage) {
         BatchCoordinates storage coords = _mapRequestNonceToBatchCoordinates[
             nonce
         ];
-        bytes32 resultHash = _mapBatchNonceToResultHash[coords.batchNonce];
-        if (resultHash == bytes32(0)) {
+        RevealedBatchResult storage result = _batchResults[coords.batchNonce];
+        if (!result.exists) {
             revert ResponseNotAvailable();
         }
-        return _batchResults[resultHash].responses[coords.position].ipfsHash;
+        return result.responses[coords.position].ipfsHash;
     }
 
-    function _queueRequest(string calldata requestIpfsHash) internal {
+    function _queueRequest(IPFSMultihash calldata requestIpfsHash) internal {
         uint requestNonce = _requestQueue.tail++;
         Request storage req = _requestQueue.queue[requestNonce];
         req.ipfsHash = requestIpfsHash;
         req.author = msg.sender;
-        uint batchNonce = _calculateAndSaveBatchCoordinates(requestNonce);
+        (uint batchNonce, uint position) = _calculateAndSaveBatchCoordinates(
+            requestNonce
+        );
+        //_initResponseStorageAtPosition(batchNonce, position);
         emit RequestSubmitted(requestNonce, batchNonce);
     }
 
     function _calculateAndSaveBatchCoordinates(
         uint nonce
-    ) internal returns (uint) {
+    ) internal returns (uint, uint) {
         uint queueHead = _requestQueue.head;
         uint queueTail = nonce + 1;
         uint queueSize = queueTail - queueHead;
@@ -431,43 +442,45 @@ contract REST3App {
             nonce
         ];
         uint batchNonce = _batch.nonce + 1 + (queueSize / BATCH_SIZE);
+        uint position = queueSize % BATCH_SIZE;
         coords.batchNonce = batchNonce;
-        coords.position = queueSize % BATCH_SIZE;
-        return batchNonce;
+        coords.position = position;
+        return (batchNonce, position);
+    }
+
+    /**
+     * Initializes response at coordinate with some value so writing actual
+     * response will consume a lot less gas
+     */
+    function _initResponseStorageAtPosition(
+        uint batchNonce,
+        uint position
+    ) internal {
+        IPFSMultihash storage ipfsHash = _batchResults[batchNonce]
+            .responses[position]
+            .ipfsHash;
+        ipfsHash.digest = bytes32(uint(1));
+        ipfsHash.hashFunction = 1;
+        // No need to set ipfsHash.size to 1 because it shares the same
+        // storage slot as ipfsHash.hashFunction.
     }
 
     function _prepareNextBatch() internal {
         uint oldHead = _requestQueue.head;
         uint newHead = Math.min(oldHead + BATCH_SIZE, _requestQueue.tail);
-        for (uint i = _batch.head; i < oldHead; i++) {
-            delete _requestQueue.queue[i]; // gas refund
-        }
         _batch.head = oldHead;
         _requestQueue.head = newHead;
         if (newHead - oldHead > 0) {
             uint nonce = ++_batch.nonce;
             Consensus storage consensus = _consensus[nonce];
             consensus.startedAt = block.timestamp;
-            consensus.totalServers = _serverSet.length();
             emit NextBatchReady();
         }
     }
 
-    function _deleteConsensus(uint batchNonce) internal {
-        Consensus storage consensus = _consensus[batchNonce];
-        uint size = consensus.numberOfParticipants;
-        for (uint i = 0; i < size; i++) {
-            address addr = consensus.serversWhoParticipated[i];
-            delete consensus.resultsByServer[addr];
-            delete consensus.randomBackoffs[addr];
-            delete consensus.serversWhoParticipated[i];
-        }
-        delete _consensus[batchNonce];
-    }
-
     function _handleConsensusFailed() internal {
         uint batchNonce = _batch.nonce;
-        _deleteConsensus(batchNonce);
+        delete _consensus[batchNonce];
         emit BatchFailed(batchNonce);
         _prepareNextBatch();
     }
@@ -492,23 +505,15 @@ contract REST3App {
 
     function _giveContributionPoints(
         Server storage server,
-        uint16 points
+        uint points
     ) internal {
-        uint16 oldContrib = server.contributions;
-        if (oldContrib == type(uint16).max) return;
-        unchecked {
-            uint16 newContrib = oldContrib + points;
-            if (newContrib < oldContrib) {
-                newContrib = type(uint16).max;
-            }
-            server.contributions = newContrib;
-            totalContributions += newContrib - oldContrib;
-        }
+        server.contributions += points;
+        totalContributions += points;
     }
 
     function _resetContributionPoints(Server storage server) internal {
-        totalContributions -= server.contributions;
-        server.contributions = 0;
+        totalContributions -= server.contributions - 1;
+        server.contributions = 1;
     }
 
     function _calculateTreasuryShare(
@@ -517,7 +522,7 @@ contract REST3App {
         if (totalContributions == 0) {
             return 0;
         }
-        return (treasury * s.contributions) / totalContributions;
+        return (treasury * (s.contributions - 1)) / totalContributions;
     }
 
     function _slash(address addr) internal {

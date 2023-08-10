@@ -6,8 +6,8 @@ uint constant MAX_SERVERS = 200;
 
 struct Batch {
     uint nonce;
-    string initialStateIpfsHash;
     uint head;
+    IPFSMultihash initialStateIpfsHash;
 }
 
 struct BatchCoordinates {
@@ -17,9 +17,9 @@ struct BatchCoordinates {
 
 struct BatchView {
     uint nonce;
-    string initialStateIpfsHash;
-    Request[] requests;
     uint expiresAt;
+    Request[] requests;
+    IPFSMultihash initialStateIpfsHash;
 }
 
 struct BatchRange {
@@ -29,20 +29,25 @@ struct BatchRange {
 
 struct BatchResult {
     uint nonce;
-    string finalStateIpfsHash;
-    string[] responseIpfsHashes;
+    IPFSMultihash finalStateIpfsHash;
+    IPFSMultihash[] responses;
 }
 
 struct Consensus {
     uint startedAt;
-    uint totalServers;
     mapping(address => bytes32) resultsByServer;
     mapping(bytes32 => uint) countByResult;
-    mapping(address => uint8) randomBackoffs;
+    mapping(address => uint) randomBackoffs;
     mapping(uint => address) serversWhoParticipated;
     uint numberOfParticipants;
     bytes32 resultWithLargestCount;
     uint reachedAt;
+}
+
+struct IPFSMultihash {
+    bytes32 digest;
+    uint8 hashFunction;
+    uint8 size;
 }
 
 struct GlobalParams {
@@ -53,15 +58,15 @@ struct GlobalParams {
     uint consensusRatioPercent;
     uint inactivityDuration;
     uint slashPercent;
-    uint16 housekeepReward;
-    uint16 revealReward;
-    uint8 randomBackoffMin;
-    uint8 randomBackoffMax;
+    uint housekeepReward;
+    uint revealReward;
+    uint randomBackoffMin;
+    uint randomBackoffMax;
 }
 
 struct Request {
-    string ipfsHash;
     address author;
+    IPFSMultihash ipfsHash;
 }
 
 struct RequestQueue {
@@ -71,13 +76,13 @@ struct RequestQueue {
 }
 
 struct Response {
-    string ipfsHash;
+    IPFSMultihash ipfsHash;
 }
 
 struct Server {
     address addr;
     uint stake;
-    uint16 contributions;
+    uint contributions;
     uint lastSeen;
     uint nextHousekeepAt;
 }

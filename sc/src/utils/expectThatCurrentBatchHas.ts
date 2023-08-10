@@ -1,7 +1,10 @@
 import { expect } from "chai"
+import { Contract } from "ethers"
+import { RequestStruct } from "../../typechain-types/REST3App"
+import { Multihash } from "./multihash"
 
 async function expectThatCurrentBatchHas(
-  contract: any,
+  contract: Contract,
   {
     nonce,
     stateIpfsHash,
@@ -9,8 +12,8 @@ async function expectThatCurrentBatchHas(
     sizeOf
   }: {
     nonce?: number
-    stateIpfsHash?: string
-    requests?: Array<any>
+    stateIpfsHash?: Multihash
+    requests?: Array<RequestStruct>
     sizeOf?: number
   }
 ) {
@@ -19,7 +22,7 @@ async function expectThatCurrentBatchHas(
     expect(batchView.nonce).to.equal(nonce)
   }
   if (stateIpfsHash) {
-    expect(batchView.initialStateIpfsHash).to.equal(stateIpfsHash)
+    expect(batchView.initialStateIpfsHash).to.deep.equal(Object.assign(Object.values(stateIpfsHash), stateIpfsHash))
   }
   if (sizeOf) {
     expect(batchView.requests).to.have.lengthOf(sizeOf)
