@@ -1,7 +1,7 @@
 import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers"
 import { expect } from "chai"
 import { ethers } from "hardhat"
-import { batchResult1, batchResult2, batchResult3 } from "../src/utils/batchResult"
+import { RESULT_1, RESULT_2, RESULT_3 } from "../src/utils/batchResult"
 import expectThatCurrentBatchHas from "../src/utils/expectThatCurrentBatchHas"
 import { Wallet, Contract, Signer } from "ethers"
 import multihash from "../src/utils/multihash"
@@ -42,9 +42,6 @@ describe("REST3App", function () {
       inactivityDuration: ethers.BigNumber.from(3600),
       slashPercent: ethers.BigNumber.from(2),
       housekeepReward: ethers.BigNumber.from(3),
-      revealReward: ethers.BigNumber.from(5),
-      randomBackoffMin: ethers.BigNumber.from(6),
-      randomBackoffMax: ethers.BigNumber.from(24),
       ...globalParamsOverrides
     }
     const stateIpfsHash = multihash.parse("QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk")
@@ -98,30 +95,12 @@ describe("REST3App", function () {
       users: [user1, user2, user3],
       usersLastSeen
     } = fixture
-    const result = batchResult1(1)
-    const result2 = batchResult2(1)
-    await contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(result))
+    await contract.connect(user1).submitBatchResult(1, RESULT_1)
     usersLastSeen[0] = await time.latest()
-    await contract.connect(user2).submitBatchResultHash(1, await contract.hashResult(result))
+    await contract.connect(user2).submitBatchResult(1, RESULT_1)
     usersLastSeen[1] = await time.latest()
-    await contract.connect(user3).submitBatchResultHash(1, await contract.hashResult(result2))
+    await contract.connect(user3).submitBatchResult(1, RESULT_2)
     usersLastSeen[2] = await time.latest()
-    return fixture
-  }
-
-  async function deployAndCompleteOneConsensus(globalParamsOverrides?: object) {
-    const fixture = await deployAndReachConsensus(globalParamsOverrides)
-    const {
-      contract,
-      users: [user1],
-      globalParams,
-      usersLastSeen
-    } = fixture
-    const result = batchResult1(1)
-    await contract.sendRequest(multihash.generate("request2")) // enqueue so it is loaded in second batch
-    await time.increase(globalParams.randomBackoffMax)
-    await contract.connect(user1).revealBatchResult(result)
-    usersLastSeen[0] = await time.latest()
     return fixture
   }
 
@@ -138,7 +117,7 @@ describe("REST3App", function () {
       await expect(contract.serverRegister({ value: ethers.utils.parseEther("1") }))
         .to.emit(contract, "ServerRegistered")
         .withArgs(owner.address)
-      expect(await contract.getContributionData()).to.deep.equal(
+      expect(await contract.getServerData()).to.deep.equal(
         toStruct({
           addr: owner.address,
           stake: globalParams.minStake,
@@ -187,7 +166,7 @@ describe("REST3App", function () {
     it("Should unregister server, with a fee that go to treasury", async () => {
       const { contract, owner } = await loadFixture(deployAndRegisterOwner)
       await expect(contract.serverUnregister()).to.emit(contract, "ServerUnregistered").withArgs(owner.address)
-      await expect(contract.getContributionData()).to.be.revertedWithCustomError(contract, "ServerNotRegistered")
+      await expect(contract.getServerData()).to.be.revertedWithCustomError(contract, "ServerNotRegistered")
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0.02")) // Slashed amount go to treasury
     })
 
@@ -337,24 +316,16 @@ describe("REST3App", function () {
         contract,
         users: [user1]
       } = await loadFixture(deployAndRegisterOwner)
-      const result = batchResult1(0)
 
       await expect(contract.connect(user1).getCurrentBatch()).to.be.revertedWithCustomError(
         contract,
         "ServerNotRegistered"
       )
-      await expect(
-        contract.connect(user1).submitBatchResultHash(0, await contract.hashResult(result))
-      ).to.be.revertedWithCustomError(contract, "ServerNotRegistered")
-      await expect(contract.connect(user1).revealBatchResult(result)).to.be.revertedWithCustomError(
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.be.revertedWithCustomError(
         contract,
         "ServerNotRegistered"
       )
-      await expect(contract.connect(user1).getResultRevealTimestamp(0)).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).getContributionData()).to.be.revertedWithCustomError(
+      await expect(contract.connect(user1).getServerData()).to.be.revertedWithCustomError(
         contract,
         "ServerNotRegistered"
       )
@@ -366,7 +337,7 @@ describe("REST3App", function () {
         contract,
         "ServerNotRegistered"
       )
-      await expect(contract.connect(user1).getClaimableRewards()).to.be.revertedWithCustomError(
+      await expect(contract.connect(user1).estimateClaimableRewards()).to.be.revertedWithCustomError(
         contract,
         "ServerNotRegistered"
       )
@@ -383,26 +354,18 @@ describe("REST3App", function () {
 
     it("Should revert if nonce is invalid", async () => {
       const { contract } = await loadFixture(deployAndRegisterOwner)
-      await expect(
-        contract.submitBatchResultHash(42, await contract.hashResult(batchResult1(42)))
-      ).to.be.revertedWithCustomError(contract, "InvalidBatchNonce")
-      await expect(contract.revealBatchResult(batchResult1(42))).to.be.revertedWithCustomError(
+      await expect(contract.submitBatchResult(42, RESULT_1)).to.be.revertedWithCustomError(
         contract,
         "InvalidBatchNonce"
       )
-      await expect(contract.getResultRevealTimestamp(42)).to.be.revertedWithCustomError(contract, "InvalidBatchNonce")
     })
 
     it("Should revert if consensus not active", async () => {
       const { contract } = await loadFixture(deployAndRegisterOwner)
-      await expect(
-        contract.submitBatchResultHash(0, await contract.hashResult(batchResult1(0)))
-      ).to.be.revertedWithCustomError(contract, "ConsensusNotActive")
-      await expect(contract.revealBatchResult(batchResult1(0))).to.be.revertedWithCustomError(
+      await expect(contract.submitBatchResult(0, RESULT_1)).to.be.revertedWithCustomError(
         contract,
         "ConsensusNotActive"
       )
-      await expect(contract.getResultRevealTimestamp(0)).to.be.revertedWithCustomError(contract, "ConsensusNotActive")
     })
 
     it("Should revert if attempt to submit result more than once", async () => {
@@ -410,12 +373,11 @@ describe("REST3App", function () {
         contract,
         users: [user1]
       } = await loadFixture(deployAndSubmitOneRequest)
-      await expect(
-        contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      ).to.emit(contract, "BatchResultHashSubmitted")
-      await expect(
-        contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      ).to.be.revertedWithCustomError(contract, "ResultAlreadySubmitted")
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.emit(contract, "BatchResultHashSubmitted")
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.be.revertedWithCustomError(
+        contract,
+        "ResultAlreadySubmitted"
+      )
     })
 
     it("Should revert if consensus expired", async () => {
@@ -425,66 +387,58 @@ describe("REST3App", function () {
         globalParams
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await expect(
-        contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      ).to.emit(contract, "BatchResultHashSubmitted")
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.emit(contract, "BatchResultHashSubmitted")
 
       await time.increase(globalParams.consensusMaxDuration)
 
-      await expect(
-        contract.connect(user2).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      ).to.be.revertedWithCustomError(contract, "ConsensusNotActive")
-    })
-
-    it("Should emit ConsensusReached if quorum and ratio is reached", async () => {
-      const {
+      await expect(contract.connect(user2).submitBatchResult(1, RESULT_1)).to.be.revertedWithCustomError(
         contract,
-        users: [user1, user2, user3]
-      } = await loadFixture(deployAndSubmitOneRequest)
-
-      const result = batchResult1(1)
-      const resultHash = await contract.hashResult(result)
-
-      await expect(contract.connect(user1).submitBatchResultHash(1, resultHash))
-        .to.emit(contract, "BatchResultHashSubmitted")
-        .and.not.to.emit(contract, "ConsensusReached")
-        .and.not.to.emit(contract, "BatchFailed")
-
-      await expect(contract.connect(user2).submitBatchResultHash(1, resultHash))
-        .to.emit(contract, "BatchResultHashSubmitted")
-        .and.not.to.emit(contract, "ConsensusReached")
-        .and.not.to.emit(contract, "BatchFailed")
-
-      await expect(contract.connect(user3).submitBatchResultHash(1, resultHash))
-        .to.emit(contract, "BatchResultHashSubmitted")
-        .and.to.emit(contract, "ConsensusReached")
-        .withArgs(resultHash)
-        .and.not.to.emit(contract, "BatchFailed")
+        "ConsensusNotActive"
+      )
     })
 
-    it("Should complete batch and process contributions when result is revealed", async () => {
+    it("Should emit BatchCompleted and process contributions if quorum and ratio is reached", async () => {
       const {
-        globalParams: { inactivityDuration, revealReward, randomBackoffMax },
+        globalParams: { inactivityDuration },
         contract,
         users: [user1, user2, user3],
         usersLastSeen,
         usersRegisteredAt
-      } = await loadFixture(deployAndReachConsensus)
+      } = await loadFixture(deployAndSubmitOneRequest)
 
-      await time.increase(randomBackoffMax)
-      expect(await contract.connect(user1).revealBatchResult(batchResult1(1))).to.emit(contract, "BatchCompleted")
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, "BatchResultHashSubmitted")
+        .and.not.to.emit(contract, "BatchCompleted")
+        .and.not.to.emit(contract, "BatchFailed")
       usersLastSeen[0] = await time.latest()
 
-      expect(await contract.connect(user1).getContributionData()).to.deep.equal(
+      await expect(contract.connect(user2).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, "BatchResultHashSubmitted")
+        .and.not.to.emit(contract, "BatchCompleted")
+        .and.not.to.emit(contract, "BatchFailed")
+      usersLastSeen[1] = await time.latest()
+
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_2))
+        .to.emit(contract, "BatchResultHashSubmitted")
+        .and.to.emit(contract, "BatchCompleted")
+        .withArgs(1)
+        .and.not.to.emit(contract, "BatchFailed")
+      usersLastSeen[2] = await time.latest()
+
+      await contract.connect(user1).applyLastContribution()
+      await contract.connect(user2).applyLastContribution()
+      await contract.connect(user3).applyLastContribution()
+
+      expect(await contract.connect(user1).getServerData()).to.deep.equal(
         toStruct({
           addr: user1.address,
           stake: ethers.utils.parseEther("1"),
-          contributions: revealReward.add(1),
+          contributions: 1,
           lastSeen: usersLastSeen[0],
           nextHousekeepAt: ethers.BigNumber.from(usersRegisteredAt[0]).add(inactivityDuration)
         })
       )
-      expect(await contract.connect(user2).getContributionData()).to.deep.equal(
+      expect(await contract.connect(user2).getServerData()).to.deep.equal(
         toStruct({
           addr: user2.address,
           stake: ethers.utils.parseEther("2"),
@@ -493,7 +447,7 @@ describe("REST3App", function () {
           nextHousekeepAt: ethers.BigNumber.from(usersRegisteredAt[1]).add(inactivityDuration.mul(2))
         })
       )
-      expect(await contract.connect(user3).getContributionData()).to.deep.equal(
+      expect(await contract.connect(user3).getServerData()).to.deep.equal(
         toStruct({
           addr: user3.address,
           stake: ethers.utils.parseEther("3.92"),
@@ -509,25 +463,16 @@ describe("REST3App", function () {
       const {
         contract,
         users: [user1, user2, user3],
-        usersLastSeen,
-        globalParams
+        usersLastSeen
       } = await loadFixture(deployAndSubmitOneRequest)
-      const result = batchResult1(1)
-      const result2 = batchResult2(1)
-      await contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(result2))
+      await contract.connect(user1).submitBatchResult(1, RESULT_2)
       usersLastSeen[0] = await time.latest()
-      await contract.connect(user2).submitBatchResultHash(1, await contract.hashResult(result))
+      await contract.connect(user2).submitBatchResult(1, RESULT_1)
       usersLastSeen[1] = await time.latest()
-      await contract.connect(user3).submitBatchResultHash(1, await contract.hashResult(result))
+      await contract.connect(user3).submitBatchResult(1, RESULT_1)
       usersLastSeen[2] = await time.latest()
-      await time.increase(globalParams.randomBackoffMax)
-      await expect(contract.connect(user2).revealBatchResult(result)).to.emit(contract, "ServerUnregistered")
-      usersLastSeen[1] = await time.latest()
 
-      await expect(contract.connect(user1).getContributionData()).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
+      await expect(contract.connect(user1).claimRewards()).to.emit(contract, "ServerUnregistered")
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0.02"))
     })
 
@@ -537,62 +482,57 @@ describe("REST3App", function () {
         users: [user1, user2, user3]
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await expect(contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(batchResult1(1))))
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
         .to.emit(contract, "BatchResultHashSubmitted")
-        .and.not.to.emit(contract, "ConsensusReached")
+        .and.not.to.emit(contract, "BatchCompleted")
         .and.not.to.emit(contract, "BatchFailed")
 
-      await expect(contract.connect(user2).submitBatchResultHash(1, await contract.hashResult(batchResult2(1))))
+      await expect(contract.connect(user2).submitBatchResult(1, RESULT_2))
         .to.emit(contract, "BatchResultHashSubmitted")
-        .and.not.to.emit(contract, "ConsensusReached")
+        .and.not.to.emit(contract, "BatchCompleted")
         .and.not.to.emit(contract, "BatchFailed")
 
-      await expect(contract.connect(user3).submitBatchResultHash(1, await contract.hashResult(batchResult3(1))))
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_3))
         .to.emit(contract, "BatchResultHashSubmitted")
         .and.to.emit(contract, "BatchFailed")
         .withArgs(ethers.BigNumber.from(1))
-        .and.not.to.emit(contract, "ConsensusReached")
+        .and.not.to.emit(contract, "BatchCompleted")
     })
 
-    it("Should revert with ConsensusNotActive after result has been revealed", async () => {
+    it("Should revert with ConsensusNotActive after a BatchCompleted", async () => {
       const {
         contract,
         users: [, , , user4]
-      } = await loadFixture(deployAndCompleteOneConsensus)
-      await expect(
-        contract.connect(user4).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      ).to.be.revertedWithCustomError(contract, "ConsensusNotActive")
+      } = await loadFixture(deployAndReachConsensus)
+      await expect(contract.connect(user4).submitBatchResult(1, RESULT_1)).to.be.revertedWithCustomError(
+        contract,
+        "ConsensusNotActive"
+      )
     })
 
-    it("Should reject further hash submissions after a BatchFailed", async () => {
+    it("Should revert with ConsensusNotActive after a BatchFailed", async () => {
       const {
         contract,
         users: [user1, user2, user3, user4]
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      await contract.connect(user2).submitBatchResultHash(1, await contract.hashResult(batchResult2(1)))
-      await expect(contract.connect(user3).submitBatchResultHash(1, await contract.hashResult(batchResult3(1))))
+      await contract.connect(user1).submitBatchResult(1, RESULT_1)
+      await contract.connect(user2).submitBatchResult(1, RESULT_2)
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_3))
         .to.emit(contract, "BatchFailed")
         .withArgs(ethers.BigNumber.from(1))
 
-      await expect(
-        contract.connect(user4).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      ).to.be.revertedWithCustomError(contract, "ConsensusNotActive")
+      await expect(contract.connect(user4).submitBatchResult(1, RESULT_1)).to.be.revertedWithCustomError(
+        contract,
+        "ConsensusNotActive"
+      )
     })
 
     it("Should next batch be empty", async () => {
       const {
-        globalParams: { randomBackoffMax },
         contract,
         users: [user1]
       } = await loadFixture(deployAndReachConsensus)
-
-      await time.increase(randomBackoffMax)
-
-      await expect(contract.connect(user1).revealBatchResult(batchResult1(1)))
-        .to.emit(contract, "BatchCompleted")
-        .and.not.to.emit(contract, "NextBatchReady")
 
       await expect(contract.connect(user1).getCurrentBatch()).to.be.revertedWithCustomError(contract, "EmptyBatch")
     })
@@ -601,12 +541,18 @@ describe("REST3App", function () {
       const {
         contract,
         owner,
-        users: [user1]
-      } = await loadFixture(deployAndCompleteOneConsensus)
+        users: [user1, user2, user3]
+      } = await deployAndSubmitOneRequest()
+      await contract.connect(user1).submitBatchResult(1, RESULT_1)
+      await contract.connect(user2).submitBatchResult(1, RESULT_1)
+
+      await contract.sendRequest(multihash.generate("request2"))
+
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1)).to.emit(contract, "NextBatchReady")
 
       await expectThatCurrentBatchHas(contract.connect(user1), {
         nonce: 2,
-        stateIpfsHash: multihash.generate("1"),
+        stateIpfsHash: RESULT_1.finalStateIpfsHash,
         sizeOf: 1,
         requests: [
           toStruct({
@@ -626,17 +572,15 @@ describe("REST3App", function () {
         globalParams: { consensusMaxDuration }
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await expect(
-        contract.connect(user1).submitBatchResultHash(1, await contract.hashResult(batchResult1(1)))
-      ).to.emit(contract, "BatchResultHashSubmitted")
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.emit(contract, "BatchResultHashSubmitted")
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).not.to.emit(contract, "BatchFailed")
-      expect((await contract.connect(user2).getContributionData()).contributions).to.equal(0)
+      expect((await contract.connect(user2).getServerData()).contributions).to.equal(0)
 
       await time.increase(consensusMaxDuration)
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).to.emit(contract, "BatchFailed")
-      expect((await contract.connect(user2).getContributionData()).contributions).to.equal(1)
+      expect((await contract.connect(user2).getServerData()).contributions).to.equal(1)
     })
 
     it("Should revert if housekeep is on cooldown", async () => {
@@ -657,12 +601,14 @@ describe("REST3App", function () {
         contract,
         globalParams: { inactivityDuration },
         users: [user1, user2, user3, user4]
-      } = await deployAndCompleteOneConsensus({ consensusMaxDuration: ethers.BigNumber.from(9999) })
+      } = await deployAndReachConsensus({ consensusMaxDuration: ethers.BigNumber.from(9999) })
+
+      await contract.sendRequest(multihash.generate("request2"))
 
       await time.increase(inactivityDuration)
-      await contract.connect(user1).submitBatchResultHash(2, await contract.hashResult(batchResult2(2)))
-      await contract.connect(user2).submitBatchResultHash(2, await contract.hashResult(batchResult2(2)))
-      await contract.connect(user3).submitBatchResultHash(2, await contract.hashResult(batchResult2(2)))
+      await contract.connect(user1).submitBatchResult(2, RESULT_2)
+      await contract.connect(user2).submitBatchResult(2, RESULT_2)
+      await contract.connect(user3).submitBatchResult(2, RESULT_2)
 
       await expect(contract.connect(user1).housekeepInactive())
         .to.emit(contract, "HousekeepSuccess")
@@ -682,7 +628,7 @@ describe("REST3App", function () {
       const {
         contract,
         users: [user1, user2, user3],
-        globalParams: { consensusMaxDuration, randomBackoffMax, inactivityDuration }
+        globalParams: { consensusMaxDuration, inactivityDuration }
       } = await deployAndSubmitOneRequest({ consensusMaxDuration: ethers.BigNumber.from(9999) })
 
       await time.increase(consensusMaxDuration.add(1))
@@ -691,13 +637,10 @@ describe("REST3App", function () {
       await contract.connect(user1).skipBatchIfConsensusExpired()
 
       // users 1, 2 and 3 will get a contribution point by completing next batch
-      // user 2 will get extra points for revealing the result
       await expect(contract.sendRequest(multihash.generate("request2"))).to.emit(contract, "NextBatchReady")
-      await contract.connect(user1).submitBatchResultHash(2, await contract.hashResult(batchResult2(2)))
-      await contract.connect(user2).submitBatchResultHash(2, await contract.hashResult(batchResult2(2)))
-      await contract.connect(user3).submitBatchResultHash(2, await contract.hashResult(batchResult2(2)))
-      await time.increase(randomBackoffMax)
-      await contract.connect(user2).revealBatchResult(batchResult2(2))
+      await contract.connect(user1).submitBatchResult(2, RESULT_2)
+      await contract.connect(user2).submitBatchResult(2, RESULT_2)
+      await contract.connect(user3).submitBatchResult(2, RESULT_2)
 
       // Elapse time so user3 can housekeep
       await time.increase(inactivityDuration.mul(3))
@@ -705,55 +648,53 @@ describe("REST3App", function () {
       // users 1, 2 and 3 will get a contribution point by completing next batch
       // User 3 will get extra points for housekeeping
       await expect(contract.sendRequest(multihash.generate("request3"))).to.emit(contract, "NextBatchReady")
-      await contract.connect(user1).submitBatchResultHash(3, await contract.hashResult(batchResult3(3)))
-      await contract.connect(user2).submitBatchResultHash(3, await contract.hashResult(batchResult3(3)))
-      await contract.connect(user3).submitBatchResultHash(3, await contract.hashResult(batchResult3(3)))
-      await time.increase(randomBackoffMax)
-      await contract.connect(user2).revealBatchResult(batchResult3(3))
+      await contract.connect(user1).submitBatchResult(3, RESULT_3)
+      await contract.connect(user2).submitBatchResult(3, RESULT_3)
+      await contract.connect(user3).submitBatchResult(3, RESULT_3)
       await contract.connect(user3).housekeepInactive()
 
-      expect((await contract.connect(user1).getContributionData()).contributions).to.equal(3)
-      expect((await contract.connect(user2).getContributionData()).contributions).to.equal(12)
-      expect((await contract.connect(user3).getContributionData()).contributions).to.equal(5)
+      await contract.connect(user1).applyLastContribution()
+      await contract.connect(user2).applyLastContribution()
+      await contract.connect(user3).applyLastContribution()
+
+      expect((await contract.connect(user1).getServerData()).contributions).to.equal(3)
+      expect((await contract.connect(user2).getServerData()).contributions).to.equal(2)
+      expect((await contract.connect(user3).getServerData()).contributions).to.equal(5)
 
       // there's already 0.16 ether in treasury because of user4 housekeeping
       await contract.donateToTreasury({ value: ethers.utils.parseEther("399.84") })
 
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("400"))
-      expect(await contract.connect(user1).getClaimableRewards()).to.equal(ethers.utils.parseEther("60"))
-      expect(await contract.connect(user2).getClaimableRewards()).to.equal(ethers.utils.parseEther("240"))
-      expect(await contract.connect(user3).getClaimableRewards()).to.equal(ethers.utils.parseEther("100"))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("120"))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("80"))
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("200"))
 
       await contract.connect(user1).claimRewards()
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("340"))
-      expect(await contract.connect(user1).getClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user2).getClaimableRewards()).to.equal(ethers.utils.parseEther("240"))
-      expect(await contract.connect(user3).getClaimableRewards()).to.equal(ethers.utils.parseEther("100"))
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("280"))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("80"))
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("200"))
 
       await contract.connect(user2).claimRewards()
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("100"))
-      expect(await contract.connect(user1).getClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user2).getClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user3).getClaimableRewards()).to.equal(ethers.utils.parseEther("100"))
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("200"))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("200"))
 
       await contract.connect(user3).claimRewards()
 
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user1).getClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user2).getClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user3).getClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
     })
   })
 
   describe("Gas limit performance tests", () => {
     async function playScenario(requestsPerBatch: number) {
-      const {
-        contract,
-        wallets,
-        globalParams: { randomBackoffMax }
-      } = await loadFixture(deployAndRegister200Users)
+      const { contract, wallets } = await loadFixture(deployAndRegister200Users)
       expect(await contract.getServerCount()).to.equal(200)
       console.log("Registered 200 servers")
       await time.increase(3600)
@@ -776,35 +717,22 @@ describe("REST3App", function () {
       async function processBatch() {
         const batch = await contract.connect(wallets[0]).getCurrentBatch()
         const batchNonce = batch.nonce.toNumber()
-        const result = batchResult1(batchNonce, batch.requests.length)
-        const encodedResult = await contract.encodeResult(result)
-        console.log(`Result array: ${Buffer.from(result.encodedResponses).toString("hex").slice(0, 1000)}`)
-        console.log(
-          `Batch ${batchNonce} result: size = ${(encodedResult.length - 2) / 2}, data = ${encodedResult.slice(0, 1000)}`
-        )
-        const resultHash = await contract.hashResult(result)
         const submitPromises = wallets.map(async (wallet, i) => {
           try {
-            const tx = await contract.connect(wallet).submitBatchResultHash(batchNonce, resultHash)
+            const tx = await contract.connect(wallet).submitBatchResult(batchNonce, RESULT_1)
             const receipt = await tx.wait()
             console.log(
-              "Wallet %d: submitBatchResultHash(%d). Gas: %d. Events: %s",
+              "Wallet %d: submitBatchResult(%d). Gas: %d. Events: %s",
               i,
               batchNonce,
               receipt.gasUsed.toNumber(),
               [...new Set(receipt.events?.map(ev => ev.event))]
             )
           } catch (e) {
-            console.log("Wallet %d: submitBatchResultHash(%d). %s", i, batchNonce, "" + e)
+            console.log("Wallet %d: submitBatchResult(%d). %s", i, batchNonce, "" + e)
           }
         })
         await Promise.allSettled(submitPromises)
-        await time.increase(randomBackoffMax)
-        const tx = await contract.connect(wallets[0]).revealBatchResult(result, { gasLimit: 30000000 })
-        const receipt = await tx.wait()
-        console.log("Wallet 0: revealBatchResult(%d). Gas: %d. Events: %s", batchNonce, receipt.gasUsed.toNumber(), [
-          ...new Set(receipt.events?.map(ev => ev.event))
-        ])
       }
 
       await processBatch()
@@ -814,7 +742,7 @@ describe("REST3App", function () {
       expect(await contract.getServerCount()).to.equal(150)
     }
 
-    it.only("Should handle 200 servers and 2000 requests per batch without exploding gas limit", async () => {
+    it("Should handle 200 servers and 2000 requests per batch without exploding gas limit", async () => {
       await playScenario(2000)
     }).timeout(300000)
   })

@@ -1,29 +1,17 @@
 import multihash, { Multihash } from "./multihash"
 
 interface Result {
-  nonce: number
   finalStateIpfsHash: Multihash
-  encodedResponses: Uint8Array
+  responseIpfsHash: Multihash
 }
 
-function batchResult(id: string, nonce: number, count: number = 1): Result {
+function generate(id: string): Result {
   return {
-    nonce,
-    finalStateIpfsHash: multihash.generate(id),
-    encodedResponses: [...Array(count).keys()]
-      .map(i => multihash.pack(multihash.generate(`some response ${i}`)))
-      .reduce((buf, hash) => Buffer.concat([buf, hash]), Buffer.alloc(0))
+    finalStateIpfsHash: multihash.generate(`final state for ${id}`),
+    responseIpfsHash: multihash.generate(`some response for ${id}`)
   }
 }
 
-export function batchResult1(nonce: number, count: number = 1): Result {
-  return batchResult("1", nonce, count)
-}
-
-export function batchResult2(nonce: number, count: number = 1): Result {
-  return batchResult("2", nonce, count)
-}
-
-export function batchResult3(nonce: number, count: number = 1): Result {
-  return batchResult("3", nonce, count)
-}
+export const RESULT_1 = generate("1")
+export const RESULT_2 = generate("2")
+export const RESULT_3 = generate("3")

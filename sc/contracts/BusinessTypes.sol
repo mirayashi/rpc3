@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 uint constant BATCH_SIZE = 2000;
 uint constant MAX_SERVERS = 200;
-uint constant IPFS_HASH_PACKED_SIZE = 34;
 
 struct Batch {
     uint nonce;
@@ -29,20 +28,24 @@ struct BatchRange {
 }
 
 struct BatchResult {
-    uint nonce;
-    bytes encodedResponses;
+    IPFSMultihash responseIpfsHash;
     IPFSMultihash finalStateIpfsHash;
 }
 
 struct Consensus {
-    uint startedAt;
+    mapping(bytes32 => BatchResult) resultsByHash;
     mapping(address => bytes32) resultsByServer;
     mapping(bytes32 => uint) countByResult;
-    mapping(address => uint) randomBackoffs;
     mapping(uint => address) serversWhoParticipated;
+    uint startedAt;
     uint numberOfParticipants;
     bytes32 resultWithLargestCount;
-    uint reachedAt;
+}
+
+enum Contribution {
+    NEUTRAL,
+    REWARD,
+    SLASH
 }
 
 struct IPFSMultihash {
@@ -59,9 +62,6 @@ struct GlobalParams {
     uint inactivityDuration;
     uint slashPercent;
     uint housekeepReward;
-    uint revealReward;
-    uint randomBackoffMin;
-    uint randomBackoffMax;
 }
 
 struct Request {
@@ -85,9 +85,4 @@ struct Server {
     uint contributions;
     uint lastSeen;
     uint nextHousekeepAt;
-}
-
-struct RevealedBatchResult {
-    bool exists;
-    mapping(uint => Response) responses;
 }

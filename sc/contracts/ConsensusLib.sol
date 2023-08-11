@@ -2,7 +2,6 @@
 pragma solidity ^0.8.20;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Sapphire} from "@oasisprotocol/sapphire-contracts/contracts/Sapphire.sol";
 import "./BusinessTypes.sol";
 
 enum ConsensusState {
@@ -12,40 +11,24 @@ enum ConsensusState {
 }
 
 library ConsensusLib {
-    function _rand(uint min, uint max) private view returns (uint) {
-        uint range = max - min;
-        return (uint(bytes32(Sapphire.randomBytes(32, ""))) % range) + min;
-    }
-
-    /**
-     * A randomly elected priority server will have its random backoff
-     * set to zero.
-     */
-    function _electPriorityServer(Consensus storage consensus) private {
-        uint randIndex = uint(bytes32(Sapphire.randomBytes(32, ""))) %
-            consensus.numberOfParticipants;
-        address elected = consensus.serversWhoParticipated[randIndex];
-        consensus.randomBackoffs[elected] = 0;
-    }
-
-    function submitResultHash(
+    function submitResult(
         Consensus storage self,
         GlobalParams storage globalParams,
-        bytes32 resultHash,
+        BatchResult calldata result,
         uint totalServers
     ) internal returns (ConsensusState) {
+        bytes32 resultHash = keccak256(abi.encode(result));
         self.resultsByServer[msg.sender] = resultHash;
-        uint randomBackoff = _rand(
-            globalParams.randomBackoffMin,
-            globalParams.randomBackoffMax
-        );
-        self.randomBackoffs[msg.sender] = randomBackoff;
+        if (
+            self.resultsByHash[resultHash].responseIpfsHash.digest == bytes32(0)
+        ) {
+            self.resultsByHash[resultHash] = result;
+        }
         self.serversWhoParticipated[self.numberOfParticipants++] = msg.sender;
         uint count = ++self.countByResult[resultHash];
         if (count > self.countByResult[self.resultWithLargestCount]) {
             self.resultWithLargestCount = resultHash;
         }
-        ConsensusState state = ConsensusState.ONGOING;
         if (
             (self.numberOfParticipants * 100) / totalServers >=
             globalParams.consensusQuorumPercent
@@ -55,14 +38,12 @@ library ConsensusLib {
                     self.numberOfParticipants >=
                 globalParams.consensusRatioPercent
             ) {
-                _electPriorityServer(self);
-                self.reachedAt = block.timestamp;
-                state = ConsensusState.SUCCESS;
+                return ConsensusState.SUCCESS;
             } else {
-                state = ConsensusState.FAILED;
+                return ConsensusState.FAILED;
             }
         }
-        return state;
+        return ConsensusState.ONGOING;
     }
 
     function isActive(
@@ -79,25 +60,5 @@ library ConsensusLib {
         address addr
     ) internal view returns (bool) {
         return self.resultsByServer[addr] != bytes32(0);
-    }
-
-    function processContributions(
-        Consensus storage self,
-        bytes32 resultHash,
-        function(address) callbackInMajority,
-        function(address) callbackInMinority
-    ) internal {
-        uint participantsCount = self.numberOfParticipants;
-        for (uint i; i < participantsCount; i++) {
-            address addr = self.serversWhoParticipated[i];
-            bytes32 resultOfServer = self.resultsByServer[addr];
-            if (resultOfServer == resultHash) {
-                // Server in majority = give a contribution point
-                callbackInMajority(addr);
-            } else {
-                // Server in minority = slash stake
-                callbackInMinority(addr);
-            }
-        }
     }
 }
