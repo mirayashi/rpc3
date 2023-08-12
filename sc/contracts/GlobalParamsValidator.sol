@@ -37,6 +37,12 @@ library GlobalParamsValidator {
         );
         if (bytes(violations[i].field).length > 0) ++i;
         violations[i] = _require(
+            self.ownerRoyaltiesPercent <= 100,
+            "ownerRoyaltiesPercent",
+            "should be between 0 and 100"
+        );
+        if (bytes(violations[i].field).length > 0) ++i;
+        violations[i] = _require(
             self.slashPercent <= 100,
             "slashPercent",
             "should be between 0 and 100"

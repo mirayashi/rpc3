@@ -9,6 +9,7 @@ async function main() {
     consensusQuorumPercent: ethers.BigNumber.from(75),
     consensusRatioPercent: ethers.BigNumber.from(51),
     inactivityDuration: ethers.BigNumber.from(3600),
+    ownerRoyaltiesPercent: ethers.BigNumber.from(5),
     slashPercent: ethers.BigNumber.from(2),
     housekeepBaseReward: ethers.BigNumber.from(10),
     housekeepCleanReward: ethers.BigNumber.from(1),

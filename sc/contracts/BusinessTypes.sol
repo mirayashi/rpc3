@@ -9,6 +9,7 @@ struct Batch {
     uint nonce;
     uint head;
     IPFSMultihash initialStateIpfsHash;
+    bool inProgress;
 }
 
 struct BatchCoordinates {
@@ -57,6 +58,7 @@ struct GlobalParams {
     uint consensusQuorumPercent;
     uint consensusRatioPercent;
     uint inactivityDuration;
+    uint ownerRoyaltiesPercent;
     uint slashPercent;
     uint housekeepBaseReward;
     uint housekeepCleanReward;

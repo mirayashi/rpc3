@@ -19,6 +19,8 @@ contract REST3App is Ownable {
     using ConsensusLib for Consensus;
     using GlobalParamsValidator for GlobalParams;
 
+    bool public maintenanceMode;
+
     GlobalParams public globalParams;
     uint public treasury;
     uint public totalContributions;
@@ -67,6 +69,16 @@ contract REST3App is Ownable {
         _;
     }
 
+    modifier whenProtocolIsPaused() {
+        if (!maintenanceMode) {
+            revert MaintenanceModeRequired();
+        }
+        if (_batch.inProgress) {
+            revert BatchInProgress();
+        }
+        _;
+    }
+
     event BatchCompleted(uint indexed batchNonce);
     event BatchFailed(uint indexed batchNonce);
     event BatchResultHashSubmitted();
@@ -76,11 +88,14 @@ contract REST3App is Ownable {
     event ServerRegistered(address indexed addr);
     event ServerUnregistered(address indexed addr);
 
+    error BatchInProgress();
     error ConsensusNotActive();
     error EmptyBatch();
     error HousekeepCooldown(uint nextHousekeepTimestamp);
     error InsufficientStake();
     error InvalidBatchNonce();
+    error MaintenanceModeEnabled();
+    error MaintenanceModeRequired();
     error MaxServersReached(uint limit);
     error ResultAlreadySubmitted();
     error ResponseNotAvailable();
@@ -101,11 +116,31 @@ contract REST3App is Ownable {
         donateToTreasury();
     }
 
+    function setMaintenanceMode(bool value) external onlyOwner {
+        maintenanceMode = value;
+    }
+
+    function setGlobalParams(
+        GlobalParams memory globalParams_
+    ) external onlyOwner whenProtocolIsPaused {
+        globalParams = globalParams_.validate();
+    }
+
+    function setGlobalParamsAndDisableMaintenanceMode(
+        GlobalParams memory globalParams_
+    ) external onlyOwner whenProtocolIsPaused {
+        globalParams = globalParams_.validate();
+        maintenanceMode = false;
+    }
+
     /**
      * This function may be called by anyone who wants to add funds to treasury.
+     * Royalties are given to the owner as specified in global params.
      */
     function donateToTreasury() public payable {
-        treasury += msg.value;
+        uint royalties = (msg.value * globalParams.ownerRoyaltiesPercent) / 100;
+        treasury += msg.value - royalties;
+        payable(owner()).transfer(royalties);
     }
 
     /**
@@ -406,8 +441,12 @@ contract REST3App is Ownable {
      * processed in next batch.
      */
     function sendRequest(IPFSMultihash calldata requestIpfsHash) external {
+        if (maintenanceMode) {
+            revert MaintenanceModeEnabled();
+        }
         _queueRequest(requestIpfsHash);
         if (_batchSize() == 0) {
+            _batch.inProgress = true;
             _prepareNextBatch();
         }
     }
@@ -486,6 +525,8 @@ contract REST3App is Ownable {
             Consensus storage consensus = _consensus[nonce];
             consensus.startedAt = block.timestamp;
             emit NextBatchReady();
+        } else {
+            _batch.inProgress = false;
         }
     }
 
