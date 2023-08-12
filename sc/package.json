@@ -8,6 +8,7 @@
     "@typescript-eslint/eslint-plugin": "^6.3.0",
     "@typescript-eslint/parser": "^6.3.0",
     "bs58": "^5.0.0",
+    "cross-env": "^7.0.3",
     "eslint": "^8.46.0",
     "hardhat": "~2.16.1",
     "solc": "~0.8.20"
@@ -15,7 +16,8 @@
   "scripts": {
     "compile": "hardhat compile",
     "compile:force": "hardhat compile --force",
-    "test": "hardhat test",
+    "test": "cross-env REPORT_GAS=true hardhat test",
+    "test:perf": "cross-env REPORT_GAS=true PERF=true hardhat test",
     "clean": "hardhat clean"
   }
 }

@@ -1,19 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "./BusinessTypes.sol";
 import {StakeLib} from "./StakeLib.sol";
 import {ConsensusLib, ConsensusState} from "./ConsensusLib.sol";
+import {PaginationLib, Pagination} from "./PaginationLib.sol";
+import {GlobalParamsValidator} from "./GlobalParamsValidator.sol";
 
 import "hardhat/console.sol";
 
-contract REST3App {
+contract REST3App is Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using StakeLib for StakeLib.Stake;
     using ConsensusLib for Consensus;
+    using GlobalParamsValidator for GlobalParams;
 
     GlobalParams public globalParams;
     uint public treasury;
@@ -77,7 +81,7 @@ contract REST3App {
     error HousekeepCooldown(uint nextHousekeepTimestamp);
     error InsufficientStake();
     error InvalidBatchNonce();
-    error MaxServersReached();
+    error MaxServersReached(uint limit);
     error ResultAlreadySubmitted();
     error ResponseNotAvailable();
     error RequestAuthorMismatch();
@@ -88,7 +92,7 @@ contract REST3App {
         GlobalParams memory globalParams_,
         IPFSMultihash memory stateIpfsHash
     ) {
-        globalParams = globalParams_;
+        globalParams = globalParams_.validate();
         _stake.minAmount = globalParams.minStake;
         _batch.initialStateIpfsHash = stateIpfsHash;
     }
@@ -127,6 +131,9 @@ contract REST3App {
         if (s.addr == msg.sender) {
             revert ServerAlreadyRegistered();
         }
+        if (_serverSet.length() == globalParams.maxServers) {
+            revert MaxServersReached(globalParams.maxServers);
+        }
         if (!_stake.tryStake()) {
             revert InsufficientStake();
         }
@@ -142,7 +149,8 @@ contract REST3App {
     /**
      * Unregister a server. Contribution points are forfeited if no withdrawal is
      * made beforehand. Unregistering costs a fee of a certain % of staked amount
-     * defined in global params.
+     * defined in global params (to discourage from unregistering only to register
+     * again with a lower stake requirement).
      */
     function serverUnregister()
         external
@@ -155,7 +163,7 @@ contract REST3App {
 
     /**
      * Calculate the rewards that can be claimed from the server's contributions.
-     * Does not take into account the very last contribution, hence "estimate".
+     * Does not take into account the most recent contribution, hence "estimate".
      */
     function estimateClaimableRewards()
         external
@@ -186,25 +194,30 @@ contract REST3App {
     /**
      * Get all data from the current batch.
      */
-    function getCurrentBatch()
-        external
-        view
-        onlyRegistered
-        returns (BatchView memory)
-    {
+    function getCurrentBatch(
+        uint page
+    ) external view onlyRegistered returns (BatchView memory) {
         uint batchSize = _batchSize();
         if (batchSize == 0) {
             revert EmptyBatch();
         }
+        Pagination memory pg = PaginationLib.paginate(
+            page,
+            batchSize,
+            BATCH_PAGE_SIZE
+        );
         uint startedAt = _consensus[_batch.nonce].startedAt;
         BatchView memory batchView = BatchView({
             nonce: _batch.nonce,
+            page: page,
+            maxPage: pg.maxPage,
             initialStateIpfsHash: _batch.initialStateIpfsHash,
-            requests: new Request[](batchSize),
+            requests: new Request[](pg.currentPageSize),
             expiresAt: startedAt + globalParams.consensusMaxDuration
         });
-        for (uint i; i < batchSize; ++i) {
-            batchView.requests[i] = _requestQueue.queue[_batch.head + i];
+        uint head = _batch.head;
+        for (uint i; i < pg.currentPageSize; ++i) {
+            batchView.requests[i] = _requestQueue.queue[head + pg.offset + i];
         }
         return batchView;
     }
@@ -285,15 +298,15 @@ contract REST3App {
         canHousekeep
         returns (address[] memory, uint)
     {
-        uint totalSize = _serverSet.length();
-        uint maxPage = totalSize / INACTIVE_SERVERS_PAGE_SIZE;
-        uint currentPageSize = page == maxPage
-            ? totalSize % INACTIVE_SERVERS_PAGE_SIZE
-            : INACTIVE_SERVERS_PAGE_SIZE;
-        address[] memory inactiveServers = new address[](currentPageSize);
+        Pagination memory pg = PaginationLib.paginate(
+            page,
+            _serverSet.length(),
+            INACTIVE_SERVERS_PAGE_SIZE
+        );
+        address[] memory inactiveServers = new address[](pg.currentPageSize);
         uint inactiveIndex;
-        for (uint i; i < totalSize; ++i) {
-            address addr = _serverSet.at(i);
+        for (uint i; i < pg.currentPageSize; ++i) {
+            address addr = _serverSet.at(pg.offset + i);
             if (addr == msg.sender) continue;
             uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
             if (elapsedSeen > globalParams.inactivityDuration) {
@@ -302,13 +315,13 @@ contract REST3App {
             }
         }
         // Reduce the size of the array to fit content
-        uint sizeDelta = currentPageSize - inactiveIndex;
+        uint sizeDelta = pg.currentPageSize - inactiveIndex;
         if (sizeDelta > 0) {
             assembly {
                 mstore(inactiveServers, sub(mload(inactiveServers), sizeDelta))
             }
         }
-        return (inactiveServers, maxPage);
+        return (inactiveServers, pg.maxPage);
     }
 
     /**
@@ -325,17 +338,18 @@ contract REST3App {
         uint cleanCount;
         uint totalSlashed;
         uint slashPercent = globalParams.slashPercent;
+        uint inactivityDuration = globalParams.inactivityDuration;
         for (uint i; i < length; ++i) {
             address addr = inactiveServers[i];
-            if (addr == msg.sender) continue;
+            if (addr == msg.sender || !_serverSet.contains(addr)) continue;
             uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
-            if (elapsedSeen > globalParams.inactivityDuration) {
+            if (elapsedSeen > inactivityDuration) {
                 totalSlashed += _slash(addr, slashPercent);
                 _unregister(addr);
                 ++cleanCount;
             }
         }
-        treasury += totalSlashed;
+        if (totalSlashed > 0) treasury += totalSlashed;
         _giveContributionPoints(
             server,
             globalParams.housekeepBaseReward +
@@ -453,15 +467,18 @@ contract REST3App {
         BatchCoordinates storage coords = _mapRequestNonceToBatchCoordinates[
             nonce
         ];
-        uint batchNonce = _batch.nonce + 1 + (queueSize / BATCH_SIZE);
-        uint position = queueSize % BATCH_SIZE;
+        uint batchNonce = _batch.nonce + 1 + (queueSize / BATCH_PAGE_SIZE);
+        uint position = queueSize % BATCH_PAGE_SIZE;
         coords.batchNonce = batchNonce;
         coords.position = position;
     }
 
     function _prepareNextBatch() internal {
         uint oldHead = _requestQueue.head;
-        uint newHead = Math.min(oldHead + BATCH_SIZE, _requestQueue.tail);
+        uint newHead = Math.min(
+            oldHead + globalParams.maxBatchSize,
+            _requestQueue.tail
+        );
         _batch.head = oldHead;
         _requestQueue.head = newHead;
         if (newHead - oldHead > 0) {

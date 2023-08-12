@@ -1,6 +1,6 @@
 import { expect } from "chai"
 import { Contract } from "ethers"
-import { RequestStruct } from "../../typechain-types/REST3App"
+import { RequestStruct } from "../typechain-types/REST3App"
 import { Multihash } from "./multihash"
 
 async function expectThatCurrentBatchHas(
@@ -17,7 +17,7 @@ async function expectThatCurrentBatchHas(
     sizeOf?: number
   }
 ) {
-  const batchView = await contract.getCurrentBatch()
+  const batchView = await contract.getCurrentBatch(0)
   if (nonce) {
     expect(batchView.nonce).to.equal(nonce)
   }

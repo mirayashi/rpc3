@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-uint constant BATCH_SIZE = 10000;
+uint constant BATCH_PAGE_SIZE = 1000;
 uint constant INACTIVE_SERVERS_PAGE_SIZE = 200;
 uint constant HOUSEKEEP_MAX_SIZE = 10;
 
@@ -18,14 +18,11 @@ struct BatchCoordinates {
 
 struct BatchView {
     uint nonce;
+    uint page;
+    uint maxPage;
     uint expiresAt;
     Request[] requests;
     IPFSMultihash initialStateIpfsHash;
-}
-
-struct BatchRange {
-    uint start;
-    uint end;
 }
 
 struct BatchResult {
@@ -55,7 +52,6 @@ struct IPFSMultihash {
 }
 
 struct GlobalParams {
-    uint defaultRequestCost;
     uint minStake;
     uint consensusMaxDuration;
     uint consensusQuorumPercent;
@@ -64,6 +60,8 @@ struct GlobalParams {
     uint slashPercent;
     uint housekeepBaseReward;
     uint housekeepCleanReward;
+    uint maxServers;
+    uint maxBatchSize;
 }
 
 struct Request {
