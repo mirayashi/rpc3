@@ -11,7 +11,7 @@ async function main() {
     consensusRatioPercent: ethers.BigNumber.from(51),
     inactivityDuration: ethers.BigNumber.from(3600),
     slashPercent: ethers.BigNumber.from(2),
-    housekeepReward: ethers.BigNumber.from(3),
+    housekeepBaseReward: ethers.BigNumber.from(3),
     revealReward: ethers.BigNumber.from(5),
     randomBackoffMin: ethers.BigNumber.from(6),
     randomBackoffMax: ethers.BigNumber.from(24)

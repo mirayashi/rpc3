@@ -55,10 +55,18 @@ contract REST3App {
         _;
     }
 
+    modifier canHousekeep() {
+        Server storage server = _servers[msg.sender];
+        if (block.timestamp < server.nextHousekeepAt) {
+            revert HousekeepCooldown(server.nextHousekeepAt);
+        }
+        _;
+    }
+
     event BatchCompleted(uint indexed batchNonce);
     event BatchFailed(uint indexed batchNonce);
     event BatchResultHashSubmitted();
-    event HousekeepSuccess(uint nextHousekeepTimestamp);
+    event HousekeepSuccess(uint cleanCount, uint nextHousekeepTimestamp);
     event NextBatchReady();
     event RequestSubmitted(uint indexed requestNonce);
     event ServerRegistered(address indexed addr);
@@ -119,9 +127,6 @@ contract REST3App {
         if (s.addr == msg.sender) {
             revert ServerAlreadyRegistered();
         }
-        if (_serverSet.length() >= MAX_SERVERS) {
-            revert MaxServersReached();
-        }
         if (!_stake.tryStake()) {
             revert InsufficientStake();
         }
@@ -144,13 +149,13 @@ contract REST3App {
         onlyRegistered
         withLatestContributions
     {
-        _slash(msg.sender);
+        treasury += _slash(msg.sender, globalParams.slashPercent);
         _unregister(msg.sender);
     }
 
     /**
      * Calculate the rewards that can be claimed from the server's contributions.
-     * Does not take into account the very last contribution.
+     * Does not take into account the very last contribution, hence "estimate".
      */
     function estimateClaimableRewards()
         external
@@ -271,25 +276,23 @@ contract REST3App {
         return _servers[msg.sender].nextHousekeepAt;
     }
 
-    /**
-     * Clean up inactive servers at regular intervals. A single server may
-     * call this function once in a while, cooldown gets higher as more servers
-     * join the protocol. Each call give contribution points on success.
-     */
-    function housekeepInactive()
+    function getInactiveServers(
+        uint page
+    )
         external
+        view
         onlyRegistered
-        withLatestContributions
+        canHousekeep
+        returns (address[] memory, uint)
     {
-        Server storage server = _servers[msg.sender];
-        if (block.timestamp < server.nextHousekeepAt) {
-            revert HousekeepCooldown(server.nextHousekeepAt);
-        }
-        address[] memory inactiveServers = new address[](
-            _serverSet.length() - 1 // - 1 because msg.sender cannot be in this array
-        );
-        uint inactiveIndex = 0;
-        for (uint i; i < _serverSet.length(); ++i) {
+        uint totalSize = _serverSet.length();
+        uint maxPage = totalSize / INACTIVE_SERVERS_PAGE_SIZE;
+        uint currentPageSize = page == maxPage
+            ? totalSize % INACTIVE_SERVERS_PAGE_SIZE
+            : INACTIVE_SERVERS_PAGE_SIZE;
+        address[] memory inactiveServers = new address[](currentPageSize);
+        uint inactiveIndex;
+        for (uint i; i < totalSize; ++i) {
             address addr = _serverSet.at(i);
             if (addr == msg.sender) continue;
             uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
@@ -298,14 +301,50 @@ contract REST3App {
                 inactiveServers[inactiveIndex++] = addr;
             }
         }
-        for (uint i; i < inactiveIndex; ++i) {
-            _slash(inactiveServers[i]);
-            _unregister(inactiveServers[i]);
+        // Reduce the size of the array to fit content
+        uint sizeDelta = currentPageSize - inactiveIndex;
+        if (sizeDelta > 0) {
+            assembly {
+                mstore(inactiveServers, sub(mload(inactiveServers), sizeDelta))
+            }
         }
-        _giveContributionPoints(server, globalParams.housekeepReward);
+        return (inactiveServers, maxPage);
+    }
+
+    /**
+     * Clean up inactive servers. A single server may
+     * call this function once in a while, cooldown gets higher as more servers
+     * join the protocol. Each call give contribution points on success, even if
+     * no server is inactive
+     */
+    function housekeepInactive(
+        address[] calldata inactiveServers
+    ) external onlyRegistered canHousekeep withLatestContributions {
+        Server storage server = _servers[msg.sender];
+        uint length = Math.min(inactiveServers.length, HOUSEKEEP_MAX_SIZE);
+        uint cleanCount;
+        uint totalSlashed;
+        uint slashPercent = globalParams.slashPercent;
+        for (uint i; i < length; ++i) {
+            address addr = inactiveServers[i];
+            if (addr == msg.sender) continue;
+            uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
+            if (elapsedSeen > globalParams.inactivityDuration) {
+                totalSlashed += _slash(addr, slashPercent);
+                _unregister(addr);
+                ++cleanCount;
+            }
+        }
+        treasury += totalSlashed;
+        _giveContributionPoints(
+            server,
+            globalParams.housekeepBaseReward +
+                cleanCount *
+                globalParams.housekeepCleanReward
+        );
         _servers[msg.sender].lastSeen = block.timestamp;
         _setNextHousekeepTimestamp(server);
-        emit HousekeepSuccess(server.nextHousekeepAt);
+        emit HousekeepSuccess(cleanCount, server.nextHousekeepAt);
     }
 
     /**
@@ -324,7 +363,7 @@ contract REST3App {
             _incContributionPoints(_servers[msg.sender]);
             return true;
         } else if (contribution == Contribution.SLASH) {
-            _slash(msg.sender);
+            treasury += _slash(msg.sender, globalParams.slashPercent);
             if (_servers[msg.sender].stake < globalParams.minStake) {
                 _unregister(msg.sender);
                 return false;
@@ -499,12 +538,12 @@ contract REST3App {
         return (treasury * share) / total;
     }
 
-    function _slash(address addr) internal {
+    function _slash(address addr, uint slashPercent) internal returns (uint) {
         uint stake = _servers[addr].stake;
-        uint toSlash = (stake * globalParams.slashPercent) / 100;
+        uint toSlash = (stake * slashPercent) / 100;
         stake -= toSlash;
         _servers[addr].stake = stake;
-        treasury += toSlash;
+        return toSlash;
     }
 
     function _unregister(address addr) internal {

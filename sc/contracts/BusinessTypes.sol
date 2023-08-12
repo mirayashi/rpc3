@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-uint constant BATCH_SIZE = 2000;
-uint constant MAX_SERVERS = 200;
+uint constant BATCH_SIZE = 10000;
+uint constant INACTIVE_SERVERS_PAGE_SIZE = 200;
+uint constant HOUSEKEEP_MAX_SIZE = 10;
 
 struct Batch {
     uint nonce;
@@ -61,7 +62,8 @@ struct GlobalParams {
     uint consensusRatioPercent;
     uint inactivityDuration;
     uint slashPercent;
-    uint housekeepReward;
+    uint housekeepBaseReward;
+    uint housekeepCleanReward;
 }
 
 struct Request {

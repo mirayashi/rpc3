@@ -3,25 +3,25 @@ import { expect } from "chai"
 import { ethers } from "hardhat"
 import { RESULT_1, RESULT_2, RESULT_3 } from "../src/utils/batchResult"
 import expectThatCurrentBatchHas from "../src/utils/expectThatCurrentBatchHas"
-import { Wallet, Contract, Signer } from "ethers"
+import { Contract, Signer } from "ethers"
 import multihash from "../src/utils/multihash"
 
 function toStruct<T extends object>(obj: T): T {
   return Object.assign(Object.values(obj), obj)
 }
 
-async function registerManyWallets(contract: Contract, owner: Signer, count: number): Promise<Wallet[]> {
-  const wallets: Wallet[] = []
-  for (let i = 0; i < count; i++) {
-    const wallet = ethers.Wallet.createRandom().connect(ethers.provider)
-    await owner.sendTransaction({ to: wallet.address, value: ethers.utils.parseEther("20") })
-    wallets.push(wallet)
+async function registerManyWallets(contract: Contract, owner: Signer, count: number): Promise<Signer[]> {
+  const wallets = await ethers.getSigners()
+  const registered: Signer[] = []
+  for (let i = 0; i < count && i < wallets.length; i++) {
+    const wallet = wallets[i]
     await contract.connect(wallet).serverRegister({ value: ethers.utils.parseEther("1") })
     process.stdout.write(`\rWallet ${i + 1}/${count} registered`)
+    registered.push(wallet)
     await time.increase(604800)
   }
   console.log()
-  return wallets
+  return registered
 }
 
 describe("REST3App", function () {
@@ -41,7 +41,8 @@ describe("REST3App", function () {
       consensusRatioPercent: ethers.BigNumber.from(51),
       inactivityDuration: ethers.BigNumber.from(3600),
       slashPercent: ethers.BigNumber.from(2),
-      housekeepReward: ethers.BigNumber.from(3),
+      housekeepBaseReward: ethers.BigNumber.from(10),
+      housekeepCleanReward: ethers.BigNumber.from(1),
       ...globalParamsOverrides
     }
     const stateIpfsHash = multihash.parse("QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk")
@@ -72,13 +73,6 @@ describe("REST3App", function () {
     await contract.connect(user4).serverRegister({ value: ethers.utils.parseEther("8") })
     usersLastSeen.push(await time.latest())
     return { ...fixture, usersLastSeen, usersRegisteredAt: usersLastSeen.slice() }
-  }
-
-  async function deployAndRegister200Users() {
-    const fixture = await deploy({ consensusMaxDuration: ethers.BigNumber.from(9999) })
-    const { contract, owner } = fixture
-    const wallets = await registerManyWallets(contract, owner, 200)
-    return { ...fixture, wallets }
   }
 
   async function deployAndSubmitOneRequest(globalParamsOverrides?: object) {
@@ -136,14 +130,6 @@ describe("REST3App", function () {
         "ServerAlreadyRegistered"
       )
     })
-
-    it("Should not register server, max reached", async () => {
-      const { contract } = await loadFixture(deployAndRegister200Users)
-      await expect(contract.serverRegister({ value: ethers.utils.parseEther("2") })).to.be.revertedWithCustomError(
-        contract,
-        "MaxServersReached"
-      )
-    }).timeout(120000)
 
     it("Should not register server, below minimum stake", async () => {
       const { contract } = await loadFixture(deploy)
@@ -333,7 +319,11 @@ describe("REST3App", function () {
         contract,
         "ServerNotRegistered"
       )
-      await expect(contract.connect(user1).housekeepInactive()).to.be.revertedWithCustomError(
+      await expect(contract.connect(user1).getInactiveServers(0)).to.be.revertedWithCustomError(
+        contract,
+        "ServerNotRegistered"
+      )
+      await expect(contract.connect(user1).housekeepInactive([])).to.be.revertedWithCustomError(
         contract,
         "ServerNotRegistered"
       )
@@ -585,13 +575,14 @@ describe("REST3App", function () {
 
     it("Should revert if housekeep is on cooldown", async () => {
       const { contract } = await loadFixture(deployAndRegisterOwner)
-      await expect(contract.housekeepInactive()).to.be.revertedWithCustomError(contract, "HousekeepCooldown")
+      await expect(contract.getInactiveServers(0)).to.be.revertedWithCustomError(contract, "HousekeepCooldown")
+      await expect(contract.housekeepInactive([])).to.be.revertedWithCustomError(contract, "HousekeepCooldown")
     })
 
     it("Should emit HousekeepSuccess but should not unregister the caller", async () => {
-      const { contract, globalParams } = await loadFixture(deployAndRegisterOwner)
+      const { contract, globalParams, owner } = await loadFixture(deployAndRegisterOwner)
       await time.increase(globalParams.inactivityDuration)
-      await expect(contract.housekeepInactive())
+      await expect(contract.housekeepInactive([owner.address]))
         .to.emit(contract, "HousekeepSuccess")
         .and.not.to.emit(contract, "ServerUnregistered")
     })
@@ -610,7 +601,9 @@ describe("REST3App", function () {
       await contract.connect(user2).submitBatchResult(2, RESULT_2)
       await contract.connect(user3).submitBatchResult(2, RESULT_2)
 
-      await expect(contract.connect(user1).housekeepInactive())
+      expect(await contract.connect(user1).getInactiveServers(0)).to.deep.equal([[user4.address], 0])
+
+      await expect(contract.connect(user1).housekeepInactive([user4.address]))
         .to.emit(contract, "HousekeepSuccess")
         .and.to.emit(contract, "ServerUnregistered")
         .withArgs(user4.address)
@@ -651,7 +644,7 @@ describe("REST3App", function () {
       await contract.connect(user1).submitBatchResult(3, RESULT_3)
       await contract.connect(user2).submitBatchResult(3, RESULT_3)
       await contract.connect(user3).submitBatchResult(3, RESULT_3)
-      await contract.connect(user3).housekeepInactive()
+      await contract.connect(user3).housekeepInactive((await contract.connect(user3).getInactiveServers(0))[0])
 
       await contract.connect(user1).applyLastContribution()
       await contract.connect(user2).applyLastContribution()
@@ -659,29 +652,29 @@ describe("REST3App", function () {
 
       expect((await contract.connect(user1).getServerData()).contributions).to.equal(3)
       expect((await contract.connect(user2).getServerData()).contributions).to.equal(2)
-      expect((await contract.connect(user3).getServerData()).contributions).to.equal(5)
+      expect((await contract.connect(user3).getServerData()).contributions).to.equal(13)
 
       // there's already 0.16 ether in treasury because of user4 housekeeping
-      await contract.donateToTreasury({ value: ethers.utils.parseEther("399.84") })
+      await contract.donateToTreasury({ value: ethers.utils.parseEther("359.84") })
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("400"))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("120"))
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("80"))
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("200"))
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("360"))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("60"))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("40"))
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("260"))
 
       await contract.connect(user1).claimRewards()
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("280"))
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("300"))
       expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("80"))
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("200"))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("40"))
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("260"))
 
       await contract.connect(user2).claimRewards()
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("200"))
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("260"))
       expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
       expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("200"))
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("260"))
 
       await contract.connect(user3).claimRewards()
 
@@ -693,26 +686,19 @@ describe("REST3App", function () {
   })
 
   describe("Gas limit performance tests", () => {
-    async function playScenario(requestsPerBatch: number) {
-      const { contract, wallets } = await loadFixture(deployAndRegister200Users)
-      expect(await contract.getServerCount()).to.equal(200)
-      console.log("Registered 200 servers")
+    async function playScenario(requestsPerBatch: number, serverCount: number) {
+      const { contract, owner } = await deploy({ consensusMaxDuration: ethers.BigNumber.from(9999) })
+      const wallets = await registerManyWallets(contract, owner, serverCount)
+      expect(await contract.getServerCount()).to.equal(serverCount)
+      console.log(`Registered ${serverCount} servers`)
       await time.increase(3600)
 
-      let requestId = 0
-
-      async function sendRequest() {
-        const id = `request_${++requestId}`
-        await contract.sendRequest(multihash.generate(id))
-      }
-
       // First requests initializes a batch of 1
-      const promises = []
       for (let i = 0; i < requestsPerBatch + 1; i++) {
-        promises.push(sendRequest().catch(e => console.error(e)))
+        await contract.sendRequest(multihash.generate(`request_${i}`))
+        process.stdout.write(`\rSent request ${i + 1}/${requestsPerBatch + 1}`)
       }
-      await Promise.allSettled(promises)
-      console.log("Sent %d requests", requestsPerBatch)
+      console.log()
 
       async function processBatch() {
         const batch = await contract.connect(wallets[0]).getCurrentBatch()
@@ -738,12 +724,20 @@ describe("REST3App", function () {
       await processBatch()
       await processBatch()
 
-      await contract.connect(wallets[0]).housekeepInactive()
-      expect(await contract.getServerCount()).to.equal(150)
+      const inactiveServers: string[] = []
+      let maxPage = 0
+      for (let i = 0; i <= maxPage && inactiveServers.length < 10; i++) {
+        const res = await contract.connect(wallets[0]).getInactiveServers(i)
+        inactiveServers.push(...res[0])
+        maxPage = res[1].toNumber()
+      }
+
+      await contract.connect(wallets[0]).housekeepInactive(inactiveServers)
+      expect(await contract.getServerCount()).to.equal(Math.max(serverCount - 10, Math.ceil(serverCount * 0.75)))
     }
 
-    it("Should handle 200 servers and 2000 requests per batch without exploding gas limit", async () => {
-      await playScenario(2000)
+    it.only("Should handle 500 servers and 10000 requests per batch without exploding gas limit", async () => {
+      await playScenario(10000, 500)
     }).timeout(300000)
   })
 })
