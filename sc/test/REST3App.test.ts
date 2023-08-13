@@ -3,112 +3,78 @@ import { expect } from "chai"
 import { ethers } from "hardhat"
 import { RESULT_1, RESULT_2, RESULT_3 } from "../src/batchResult"
 import expectThatCurrentBatchHas from "../src/expectThatCurrentBatchHas"
-import { Contract, Signer } from "ethers"
 import multihash from "../src/multihash"
 import runParallel from "../src/runParallel"
+import {
+  deploy,
+  deployAndEnableMaintenanceMode,
+  deployAndReachConsensus,
+  deployAndRegister4Users,
+  deployAndRegisterOwner,
+  deployAndSubmitOneRequest
+} from "../src/fixtures"
+import { registerManyServers, toStruct } from "../src/utils"
 
-function toStruct<T extends object>(obj: T): T {
-  return Object.assign(Object.values(obj), obj)
-}
-
-async function registerManyServers(contract: Contract, owner: Signer, count: number): Promise<Signer[]> {
-  const wallets = await ethers.getSigners()
-  const registered: Signer[] = []
-  for (let i = 0; i < count && i < wallets.length; i++) {
-    const wallet = wallets[i]
-    await contract.connect(wallet).serverRegister({ value: ethers.utils.parseEther("1") })
-    process.stdout.write(`\rRegistered server ${i + 1}/${count}`)
-    registered.push(wallet)
-    await time.increase(604800)
-  }
-  console.log()
-  return registered
-}
-
-describe("REST3App", function () {
-  // We define a fixture to reuse the same setup in every test.
-  // We use loadFixture to run this setup once, snapshot that state,
-  // and reset Hardhat Network to that snapshot in every test.
-  async function deploy(globalParamsOverrides?: object) {
-    // Contracts are deployed using the first signer/account by default
-    const [owner, ...users] = await ethers.getSigners()
-
-    const REST3App = await ethers.getContractFactory("REST3App")
-    const globalParams = {
-      minStake: ethers.utils.parseEther("1"),
-      consensusMaxDuration: ethers.BigNumber.from(60),
-      consensusQuorumPercent: ethers.BigNumber.from(75),
-      consensusRatioPercent: ethers.BigNumber.from(51),
-      inactivityDuration: ethers.BigNumber.from(3600),
-      ownerRoyaltiesPercent: ethers.BigNumber.from(5),
-      slashPercent: ethers.BigNumber.from(2),
-      housekeepBaseReward: ethers.BigNumber.from(10),
-      housekeepCleanReward: ethers.BigNumber.from(1),
-      maxServers: ethers.BigNumber.from(300),
-      maxBatchSize: ethers.BigNumber.from(6000),
-      ...globalParamsOverrides
-    }
-    const stateIpfsHash = multihash.parse("QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk")
-    const contract = await REST3App.deploy(globalParams, stateIpfsHash)
-
-    return { contract, globalParams, stateIpfsHash, owner, users }
-  }
-
-  async function deployAndRegisterOwner() {
-    const fixture = await deploy()
-    await fixture.contract.serverRegister({ value: ethers.utils.parseEther("1") })
-    return fixture
-  }
-
-  async function deployAndRegister4Users(globalParamsOverrides?: object) {
-    const fixture = await deploy(globalParamsOverrides)
-    const {
-      contract,
-      users: [user1, user2, user3, user4]
-    } = fixture
-    const usersLastSeen = []
-    await contract.connect(user1).serverRegister({ value: ethers.utils.parseEther("1") })
-    usersLastSeen.push(await time.latest())
-    await contract.connect(user2).serverRegister({ value: ethers.utils.parseEther("2") })
-    usersLastSeen.push(await time.latest())
-    await contract.connect(user3).serverRegister({ value: ethers.utils.parseEther("4") })
-    usersLastSeen.push(await time.latest())
-    await contract.connect(user4).serverRegister({ value: ethers.utils.parseEther("8") })
-    usersLastSeen.push(await time.latest())
-    return { ...fixture, usersLastSeen, usersRegisteredAt: usersLastSeen.slice() }
-  }
-
-  async function deployAndSubmitOneRequest(globalParamsOverrides?: object) {
-    const fixture = await deployAndRegister4Users(globalParamsOverrides)
-    const { contract } = fixture
-    await contract.sendRequest(multihash.generate("request1"))
-    return fixture
-  }
-
-  async function deployAndReachConsensus(globalParamsOverrides?: object) {
-    const fixture = await deployAndSubmitOneRequest(globalParamsOverrides)
-    const {
-      contract,
-      users: [user1, user2, user3],
-      usersLastSeen
-    } = fixture
-    await contract.connect(user1).submitBatchResult(1, RESULT_1)
-    usersLastSeen[0] = await time.latest()
-    await contract.connect(user2).submitBatchResult(1, RESULT_1)
-    usersLastSeen[1] = await time.latest()
-    await contract.connect(user3).submitBatchResult(1, RESULT_2)
-    usersLastSeen[2] = await time.latest()
-    return fixture
-  }
-
-  describe("Deployment", function () {
-    it("Should initialize correctly", async function () {
+describe("REST3App", () => {
+  describe("Deployment", () => {
+    it("Should initialize correctly", async () => {
       const { contract, globalParams } = await loadFixture(deploy)
       expect(await contract.globalParams()).to.deep.equal(toStruct(globalParams))
     })
+
+    it("Should fail if global params are invalid", async () => {
+      await expect(deploy({ consensusQuorumPercent: 101 })).to.be.reverted
+    })
   })
 
-  describe("Server registration", function () {
+  describe.only("Owner functions", () => {
+    it("Should revert if caller is not owner", async () => {
+      const {
+        contract,
+        globalParams,
+        users: [user1]
+      } = await loadFixture(deploy)
+      const functions = [
+        contract.connect(user1).setMaintenanceMode(true),
+        contract.connect(user1).setGlobalParams(globalParams)
+      ]
+      for (const f of functions) {
+        await expect(f).to.be.revertedWith("Ownable: caller is not the owner")
+      }
+    })
+
+    it("Should enable maintenance mode", async () => {
+      const { contract } = await loadFixture(deploy)
+      await expect(contract.setMaintenanceMode(true)).not.to.be.reverted
+      expect(await contract.maintenanceMode()).to.be.true
+    })
+
+    it("Should update global params", async () => {
+      const { contract, globalParams } = await loadFixture(deployAndEnableMaintenanceMode)
+      const newGlobalParams = { ...globalParams, minStake: ethers.utils.parseEther("5") }
+      await expect(contract.setGlobalParams(newGlobalParams)).not.to.be.reverted
+      expect(await contract.globalParams()).to.deep.equal(toStruct(newGlobalParams))
+    })
+
+    it("Should revert on setGlobalParams if maintenance mode is not enabled", async () => {
+      const { contract, globalParams } = await loadFixture(deploy)
+      await expect(contract.setGlobalParams(globalParams)).to.be.revertedWithCustomError(
+        contract,
+        "MaintenanceModeRequired"
+      )
+    })
+
+    it("Should revert on setGlobalParams if a batch is in progress", async () => {
+      const { contract, globalParams } = await loadFixture(deploy)
+      await contract.sendRequest(multihash.generate("some request"))
+      await contract.setMaintenanceMode(true)
+      await expect(contract.setGlobalParams(globalParams)).to.be.revertedWithCustomError(contract, "BatchInProgress")
+    })
+
+    it("Should revert on setGlobalParams because params are invalid", async () => {})
+  })
+
+  describe("Server registration", () => {
     it("Should register server", async () => {
       const { contract, owner, globalParams } = await loadFixture(deploy)
       await expect(contract.serverRegister({ value: ethers.utils.parseEther("1") }))

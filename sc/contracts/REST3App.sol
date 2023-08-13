@@ -126,13 +126,6 @@ contract REST3App is Ownable {
         globalParams = globalParams_.validate();
     }
 
-    function setGlobalParamsAndDisableMaintenanceMode(
-        GlobalParams memory globalParams_
-    ) external onlyOwner whenProtocolIsPaused {
-        globalParams = globalParams_.validate();
-        maintenanceMode = false;
-    }
-
     /**
      * This function may be called by anyone who wants to add funds to treasury.
      * Royalties are given to the owner as specified in global params.
