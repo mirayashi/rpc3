@@ -2,6 +2,7 @@ import { time } from "@nomicfoundation/hardhat-network-helpers"
 import { ethers } from "hardhat"
 import { RESULT_1, RESULT_2 } from "../src/batchResult"
 import multihash from "../src/multihash"
+import { registerManyServers } from "../src/utils"
 
 export async function deploy(globalParamsOverrides?: object) {
   // Contracts are deployed using the first signer/account by default
@@ -28,8 +29,8 @@ export async function deploy(globalParamsOverrides?: object) {
   return { contract, globalParams, stateIpfsHash, owner, users }
 }
 
-export async function deployAndRegisterOwner() {
-  const fixture = await deploy()
+export async function deployAndRegisterOwner(globalParamsOverrides?: object) {
+  const fixture = await deploy(globalParamsOverrides)
   await fixture.contract.serverRegister({ value: ethers.utils.parseEther("1") })
   return fixture
 }
@@ -75,9 +76,21 @@ export async function deployAndReachConsensus(globalParamsOverrides?: object) {
   return fixture
 }
 
-export async function deployAndEnableMaintenanceMode() {
-  const fixture = await deploy()
+export async function deployAndEnableMaintenanceMode(globalParamsOverrides?: object) {
+  const fixture = await deploy(globalParamsOverrides)
   const { contract } = fixture
   await contract.setMaintenanceMode(true)
+  return fixture
+}
+
+export async function deployAndMake220UsersHousekeepable(globalParamsOverrides?: object) {
+  const fixture = await deploy(globalParamsOverrides)
+  const {
+    contract,
+    owner,
+    globalParams: { inactivityDuration }
+  } = fixture
+  await registerManyServers(contract, owner, 220)
+  await time.increase(inactivityDuration)
   return fixture
 }

@@ -12,7 +12,7 @@ export async function registerManyServers(contract: Contract, owner: Signer, cou
   for (let i = 0; i < count && i < wallets.length; i++) {
     const wallet = wallets[i]
     await contract.connect(wallet).serverRegister({ value: ethers.utils.parseEther("1") })
-    process.stdout.write(`\rRegistered server ${i + 1}/${count}`)
+    process.stdout.write(`\r        Registered server ${i + 1}/${count}`)
     registered.push(wallet)
     await time.increase(604800)
   }

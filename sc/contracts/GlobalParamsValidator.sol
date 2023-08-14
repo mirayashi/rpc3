@@ -9,12 +9,14 @@ library GlobalParamsValidator {
         string reason;
     }
 
+    uint constant CHECKS_COUNT = 5;
+
     error InvalidGlobalParams(Violation[] violations);
 
     function validate(
         GlobalParams memory self
     ) internal pure returns (GlobalParams memory) {
-        Violation[] memory violations = new Violation[](4);
+        Violation[] memory violations = new Violation[](CHECKS_COUNT);
         uint i;
         violations[i] = _require(
             self.minStake > 0,
@@ -23,7 +25,7 @@ library GlobalParamsValidator {
         );
         if (bytes(violations[i].field).length > 0) ++i;
         violations[i] = _require(
-            self.consensusQuorumPercent > 0 &&
+            self.consensusQuorumPercent >= 1 &&
                 self.consensusQuorumPercent <= 100,
             "consensusQuorumPercent",
             "should be between 1 and 100"
@@ -48,7 +50,8 @@ library GlobalParamsValidator {
             "should be between 0 and 100"
         );
         if (bytes(violations[i].field).length > 0) ++i;
-        uint delta = 4 - i;
+        // Reduce array size to fit content
+        uint delta = CHECKS_COUNT - i;
         if (delta > 0) {
             assembly {
                 mstore(violations, sub(mload(violations), delta))

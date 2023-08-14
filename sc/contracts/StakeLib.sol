@@ -29,7 +29,10 @@ library StakeLib {
         if (self.baseAmount == 0) {
             return self.minAmount;
         }
-        uint elapsed = block.timestamp - self.lastStakedAt;
+        uint elapsed;
+        unchecked {
+            elapsed = block.timestamp - self.lastStakedAt;
+        }
         if (elapsed > ONE_YEAR) {
             return self.minAmount;
         }
@@ -37,7 +40,9 @@ library StakeLib {
         uint periods = periods100 / 100;
         uint periodRest = periods100 % 100;
         uint newAmount = self.baseAmount >> periods;
-        newAmount -= ((newAmount - (newAmount >> 1)) * periodRest) / 100;
+        unchecked {
+            newAmount -= ((newAmount - (newAmount >> 1)) * periodRest) / 100;
+        }
         return Math.max(newAmount, self.minAmount);
     }
 }

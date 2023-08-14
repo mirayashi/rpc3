@@ -8,6 +8,7 @@ import runParallel from "../src/runParallel"
 import {
   deploy,
   deployAndEnableMaintenanceMode,
+  deployAndMake220UsersHousekeepable,
   deployAndReachConsensus,
   deployAndRegister4Users,
   deployAndRegisterOwner,
@@ -27,7 +28,7 @@ describe("REST3App", () => {
     })
   })
 
-  describe.only("Owner functions", () => {
+  describe("Owner functions", () => {
     it("Should revert if caller is not owner", async () => {
       const {
         contract,
@@ -71,7 +72,62 @@ describe("REST3App", () => {
       await expect(contract.setGlobalParams(globalParams)).to.be.revertedWithCustomError(contract, "BatchInProgress")
     })
 
-    it("Should revert on setGlobalParams because params are invalid", async () => {})
+    it("Should revert on setGlobalParams because params are invalid", async () => {
+      const { contract, globalParams } = await loadFixture(deployAndEnableMaintenanceMode)
+      const invalidParams = {
+        ...globalParams,
+        minStake: 0,
+        consensusQuorumPercent: 111,
+        consensusRatioPercent: 111,
+        ownerRoyaltiesPercent: 111,
+        slashPercent: 111
+      }
+      await expect(contract.setGlobalParams(invalidParams))
+        .to.be.revertedWithCustomError(contract, "InvalidGlobalParams")
+        .withArgs([
+          toStruct({ field: "minStake", reason: "should be nonzero" }),
+          toStruct({ field: "consensusQuorumPercent", reason: "should be between 1 and 100" }),
+          toStruct({ field: "consensusRatioPercent", reason: "should be between 51 and 100" }),
+          toStruct({ field: "ownerRoyaltiesPercent", reason: "should be between 0 and 100" }),
+          toStruct({ field: "slashPercent", reason: "should be between 0 and 100" })
+        ])
+      const invalidParams2 = {
+        ...globalParams,
+        consensusQuorumPercent: 0,
+        consensusRatioPercent: 49
+      }
+      await expect(contract.setGlobalParams(invalidParams2))
+        .to.be.revertedWithCustomError(contract, "InvalidGlobalParams")
+        .withArgs([
+          toStruct({ field: "consensusQuorumPercent", reason: "should be between 1 and 100" }),
+          toStruct({ field: "consensusRatioPercent", reason: "should be between 51 and 100" })
+        ])
+    })
+  })
+
+  describe("Treasury and owner royalties", () => {
+    it("Should accept direct transfers and add received funds to treasury", async () => {
+      const { contract, owner } = await loadFixture(deploy)
+      await owner.sendTransaction({ to: contract.address, value: ethers.utils.parseEther("10") })
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("10"))
+      expect(await ethers.provider.getBalance(contract.address)).to.equal(ethers.utils.parseEther("10"))
+    })
+
+    it("Should add 95% to treasury and transfer 5% to owner as royalties", async () => {
+      const {
+        contract,
+        owner,
+        users: [user1]
+      } = await deploy({ ownerRoyaltiesPercent: 5 })
+      const ownerBalance = await ethers.provider.getBalance(owner.address)
+      await expect(contract.connect(user1).donateToTreasury({ value: ethers.utils.parseEther("10") })).not.to.be
+        .reverted
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("9.5"))
+      expect(await ethers.provider.getBalance(contract.address)).to.equal(ethers.utils.parseEther("9.5"))
+      expect((await ethers.provider.getBalance(owner.address)).sub(ownerBalance)).to.equal(
+        ethers.utils.parseEther("0.5")
+      )
+    })
   })
 
   describe("Server registration", () => {
@@ -98,6 +154,24 @@ describe("REST3App", () => {
         contract,
         "ServerAlreadyRegistered"
       )
+    })
+
+    it("Should not register server, max reached", async () => {
+      const {
+        contract,
+        users: [user1, user2, user3]
+      } = await deploy({ maxServers: 2 })
+      await expect(contract.connect(user1).serverRegister({ value: ethers.utils.parseEther("1") })).to.emit(
+        contract,
+        "ServerRegistered"
+      )
+      await expect(contract.connect(user2).serverRegister({ value: ethers.utils.parseEther("2") })).to.emit(
+        contract,
+        "ServerRegistered"
+      )
+      await expect(
+        contract.connect(user3).serverRegister({ value: ethers.utils.parseEther("4") })
+      ).to.be.revertedWithCustomError(contract, "MaxServersReached")
     })
 
     it("Should not register server, below minimum stake", async () => {
@@ -208,14 +282,11 @@ describe("REST3App", () => {
   })
 
   describe("Request submission", () => {
-    it("Should not be able to view current batch if not registered", async () => {
-      const {
+    it("Should revert if maintenance mode is enabled", async () => {
+      const { contract } = await loadFixture(deployAndEnableMaintenanceMode)
+      await expect(contract.sendRequest(multihash.generate("hello"))).to.be.revertedWithCustomError(
         contract,
-        users: [user1]
-      } = await loadFixture(deployAndRegisterOwner)
-      await expect(contract.connect(user1).getCurrentBatch(0)).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
+        "MaintenanceModeEnabled"
       )
     })
 
@@ -223,7 +294,8 @@ describe("REST3App", () => {
       const {
         contract,
         users: [user1],
-        stateIpfsHash
+        stateIpfsHash,
+        globalParams: { consensusMaxDuration }
       } = await loadFixture(deployAndRegisterOwner)
       await expect(contract.connect(user1).sendRequest(multihash.generate("request1"))).to.emit(
         contract,
@@ -238,7 +310,8 @@ describe("REST3App", () => {
             author: user1.address,
             ipfsHash: toStruct(multihash.generate("request1"))
           })
-        ]
+        ],
+        expiresAt: (await time.latest()) + consensusMaxDuration.toNumber()
       })
     })
 
@@ -272,38 +345,20 @@ describe("REST3App", () => {
         users: [user1]
       } = await loadFixture(deployAndRegisterOwner)
 
-      await expect(contract.connect(user1).getCurrentBatch(0)).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).getServerData()).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).skipBatchIfConsensusExpired()).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).getInactiveServers(0)).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).housekeepInactive([])).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).estimateClaimableRewards()).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
-      await expect(contract.connect(user1).claimRewards()).to.be.revertedWithCustomError(
-        contract,
-        "ServerNotRegistered"
-      )
+      const functions = [
+        contract.connect(user1).getCurrentBatch(0),
+        contract.connect(user1).submitBatchResult(1, RESULT_1),
+        contract.connect(user1).getServerData(),
+        contract.connect(user1).skipBatchIfConsensusExpired(),
+        contract.connect(user1).getInactiveServers(0),
+        contract.connect(user1).housekeepInactive([]),
+        contract.connect(user1).estimateClaimableRewards(),
+        contract.connect(user1).claimRewards()
+      ]
+
+      for (const f of functions) {
+        await expect(f).to.be.revertedWithCustomError(contract, "ServerNotRegistered")
+      }
     })
 
     it("Should revert if current batch is empty", async () => {
@@ -356,6 +411,42 @@ describe("REST3App", () => {
       )
     })
 
+    it("Should handle batches with multiple pages", async () => {
+      const size = 1440
+      const {
+        contract,
+        users: [user1, user2, user3]
+      } = await deployAndSubmitOneRequest({ batchSize: size, consensusMaxDuration: 999999 })
+
+      let counter = 0
+      await runParallel(size, async i => {
+        await contract.sendRequest(multihash.generate(`${i}`))
+        process.stdout.write(`\r        Sent request ${++counter}/${size}`)
+      })
+      console.log()
+
+      // First batch always contains one element (the first request) so we skip it
+      await contract.connect(user1).submitBatchResult(1, RESULT_1)
+      await contract.connect(user2).submitBatchResult(1, RESULT_1)
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1)).to.emit(contract, "NextBatchReady")
+
+      const firstPage = await contract.connect(user1).getCurrentBatch(0)
+      expect(firstPage.nonce).to.equal(2)
+      expect(firstPage.page).to.equal(0)
+      expect(firstPage.maxPage).to.equal(1)
+      expect(firstPage.requests).to.have.lengthOf(1000)
+
+      const secondPage = await contract.connect(user1).getCurrentBatch(1)
+      expect(secondPage.nonce).to.equal(2)
+      expect(secondPage.page).to.equal(1)
+      expect(secondPage.maxPage).to.equal(1)
+      expect(secondPage.requests).to.have.lengthOf(440)
+
+      await expect(contract.connect(user1).getCurrentBatch(2))
+        .to.be.revertedWithCustomError(contract, "MaxPageExceeded")
+        .withArgs(1)
+    })
+
     it("Should emit BatchCompleted and process contributions if quorum and ratio is reached", async () => {
       const {
         globalParams: { inactivityDuration },
@@ -384,9 +475,9 @@ describe("REST3App", () => {
         .and.not.to.emit(contract, "BatchFailed")
       usersLastSeen[2] = await time.latest()
 
-      await contract.connect(user1).applyLastContribution()
-      await contract.connect(user2).applyLastContribution()
-      await contract.connect(user3).applyLastContribution()
+      await contract.connect(user1).applyPendingContribution()
+      await contract.connect(user2).applyPendingContribution()
+      await contract.connect(user3).applyPendingContribution()
 
       expect(await contract.connect(user1).getServerData()).to.deep.equal(
         toStruct({
@@ -500,7 +591,8 @@ describe("REST3App", () => {
       const {
         contract,
         owner,
-        users: [user1, user2, user3]
+        users: [user1, user2, user3],
+        globalParams: { consensusMaxDuration }
       } = await deployAndSubmitOneRequest()
       await contract.connect(user1).submitBatchResult(1, RESULT_1)
       await contract.connect(user2).submitBatchResult(1, RESULT_1)
@@ -518,8 +610,83 @@ describe("REST3App", () => {
             author: owner.address,
             ipfsHash: toStruct(multihash.generate("request2"))
           })
-        ]
+        ],
+        expiresAt: (await time.latest()) + consensusMaxDuration.toNumber()
       })
+    })
+  })
+
+  describe("Response reading", () => {
+    it("Should revert if nonce is invalid", async () => {
+      const { contract } = await loadFixture(deployAndSubmitOneRequest)
+      await expect(contract.getResponse(42)).to.be.revertedWithCustomError(contract, "InvalidRequestNonce")
+    })
+
+    it("Should revert if response is not available", async () => {
+      const { contract } = await loadFixture(deployAndSubmitOneRequest)
+      // At this point the request is submitted but the batch in which it's included did not reach consensus yet
+      await expect(contract.getResponse(0)).to.be.revertedWithCustomError(contract, "ResponseNotAvailable")
+    })
+
+    it("Should revert if caller is not the original sender of the request", async () => {
+      const {
+        contract,
+        users: [user1]
+      } = await loadFixture(deployAndReachConsensus)
+      await expect(contract.connect(user1).getResponse(0)).to.be.revertedWithCustomError(
+        contract,
+        "RequestAuthorMismatch"
+      )
+    })
+
+    it("Should read correct response when batch has one request", async () => {
+      const { contract } = await loadFixture(deployAndReachConsensus)
+      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseIpfsHash), 0])
+    })
+
+    it("Should read correct response when request is queued for a future batch", async () => {
+      const {
+        contract,
+        users: [user1, user2, user3]
+      } = await deployAndRegister4Users({ maxBatchSize: 3 })
+
+      // Will be included in batch 1
+      await expect(contract.sendRequest(multihash.generate("1")))
+        .to.emit(contract, "RequestSubmitted")
+        .withArgs(0)
+      // Will be included in batch 2
+      await expect(contract.sendRequest(multihash.generate("2")))
+        .to.emit(contract, "RequestSubmitted")
+        .withArgs(1)
+      await expect(contract.sendRequest(multihash.generate("3")))
+        .to.emit(contract, "RequestSubmitted")
+        .withArgs(2)
+      await expect(contract.sendRequest(multihash.generate("4")))
+        .to.emit(contract, "RequestSubmitted")
+        .withArgs(3)
+      // Will be included in batch 3
+      await expect(contract.sendRequest(multihash.generate("5")))
+        .to.emit(contract, "RequestSubmitted")
+        .withArgs(4)
+
+      // Consensus batch 1
+      await contract.connect(user1).submitBatchResult(1, RESULT_1)
+      await contract.connect(user2).submitBatchResult(1, RESULT_1)
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1)).to.emit(contract, "NextBatchReady")
+      // Consensus batch 2
+      await contract.connect(user1).submitBatchResult(2, RESULT_2)
+      await contract.connect(user2).submitBatchResult(2, RESULT_2)
+      await expect(contract.connect(user3).submitBatchResult(2, RESULT_2)).to.emit(contract, "NextBatchReady")
+      // Consensus batch 3
+      await contract.connect(user1).submitBatchResult(3, RESULT_3)
+      await contract.connect(user2).submitBatchResult(3, RESULT_3)
+      await expect(contract.connect(user3).submitBatchResult(3, RESULT_3)).to.emit(contract, "BatchCompleted")
+
+      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseIpfsHash), 0])
+      expect(await contract.getResponse(1)).to.deep.equal([toStruct(RESULT_2.responseIpfsHash), 0])
+      expect(await contract.getResponse(2)).to.deep.equal([toStruct(RESULT_2.responseIpfsHash), 1])
+      expect(await contract.getResponse(3)).to.deep.equal([toStruct(RESULT_2.responseIpfsHash), 2])
+      expect(await contract.getResponse(4)).to.deep.equal([toStruct(RESULT_3.responseIpfsHash), 0])
     })
   })
 
@@ -548,18 +715,72 @@ describe("REST3App", () => {
       await expect(contract.housekeepInactive([])).to.be.revertedWithCustomError(contract, "HousekeepCooldown")
     })
 
+    it("Should handle multiple pages of inactive servers", async () => {
+      // Note: number of pages depends on the number of servers registered, not the number of servers actually inactive
+      // so we might get 0 elements in first page and some elements in second page
+      const {
+        contract,
+        users: [user1]
+      } = await loadFixture(deployAndMake220UsersHousekeepable)
+      const [addresses0, maxPage0] = await contract.connect(user1).getInactiveServers(0)
+      expect(addresses0).to.have.lengthOf(10) // results capped to 10
+      expect(maxPage0).to.equal(1)
+
+      const [addresses1, maxPage1] = await contract.connect(user1).getInactiveServers(1)
+      expect(addresses1).to.have.lengthOf(10)
+      expect(maxPage1).to.equal(1)
+      // Check that addresses0 and addresses1 have nothing in common
+      expect([...new Set(addresses0.concat(addresses1))]).to.have.lengthOf(20)
+
+      await expect(contract.connect(user1).getInactiveServers(2))
+        .to.be.revertedWithCustomError(contract, "MaxPageExceeded")
+        .withArgs(1)
+    })
+
+    it("Should not housekeep more than 10 addresses at once", async () => {
+      const {
+        contract,
+        globalParams: { inactivityDuration }
+      } = await loadFixture(deployAndMake220UsersHousekeepable)
+      const [addresses0] = await contract.getInactiveServers(0)
+      const [addresses1] = await contract.getInactiveServers(1)
+      const serverCount = await contract.getServerCount()
+      const expectedServerCountAfter = serverCount.sub(10)
+      const promise = contract.housekeepInactive(addresses0.concat(addresses1))
+      await promise // This is to make sure the function completes before time.latest()
+      await expect(promise)
+        .to.emit(contract, "HousekeepSuccess")
+        .withArgs(10, expectedServerCountAfter.mul(inactivityDuration).add(await time.latest()))
+      expect(await contract.getServerCount()).to.equal(expectedServerCountAfter)
+    })
+
+    it("Should emit HousekeepSuccess and give base reward when array is empty", async () => {
+      const {
+        contract,
+        globalParams: { inactivityDuration, housekeepBaseReward }
+      } = await loadFixture(deployAndRegisterOwner)
+      await time.increase(inactivityDuration)
+      await expect(contract.housekeepInactive([])).to.emit(contract, "HousekeepSuccess")
+      expect((await contract.getServerData()).contributions).to.equal(housekeepBaseReward)
+    })
+
     it("Should emit HousekeepSuccess but should not unregister the caller", async () => {
-      const { contract, globalParams, owner } = await loadFixture(deployAndRegisterOwner)
-      await time.increase(globalParams.inactivityDuration)
+      const {
+        contract,
+        globalParams: { inactivityDuration, housekeepBaseReward },
+        owner
+      } = await loadFixture(deployAndRegisterOwner)
+      await time.increase(inactivityDuration)
       await expect(contract.housekeepInactive([owner.address]))
         .to.emit(contract, "HousekeepSuccess")
         .and.not.to.emit(contract, "ServerUnregistered")
+      expect((await contract.getServerData()).contributions).to.equal(housekeepBaseReward)
     })
 
     it("Should emit HousekeepSuccess and unregister user4", async () => {
       const {
         contract,
-        globalParams: { inactivityDuration },
+        globalParams: { inactivityDuration, housekeepBaseReward, housekeepCleanReward },
         users: [user1, user2, user3, user4]
       } = await deployAndReachConsensus({ consensusMaxDuration: ethers.BigNumber.from(9999) })
 
@@ -578,6 +799,10 @@ describe("REST3App", () => {
         .withArgs(user4.address)
 
       expect(await contract.getServerCount()).to.equal(3)
+
+      expect((await contract.connect(user1).getServerData()).contributions).to.equal(
+        housekeepBaseReward.add(housekeepCleanReward).add(2) // earned 2 points from submitting result
+      )
 
       // user4 was slashed 0.16 because of inactivity, user3 was slashed 0.08 because
       // they submitted wrong result in the fixture
@@ -615,9 +840,9 @@ describe("REST3App", () => {
       await contract.connect(user3).submitBatchResult(3, RESULT_3)
       await contract.connect(user3).housekeepInactive((await contract.connect(user3).getInactiveServers(0))[0])
 
-      await contract.connect(user1).applyLastContribution()
-      await contract.connect(user2).applyLastContribution()
-      await contract.connect(user3).applyLastContribution()
+      await contract.connect(user1).applyPendingContribution()
+      await contract.connect(user2).applyPendingContribution()
+      await contract.connect(user3).applyPendingContribution()
 
       expect((await contract.connect(user1).getServerData()).contributions).to.equal(3)
       expect((await contract.connect(user2).getServerData()).contributions).to.equal(2)
@@ -655,7 +880,7 @@ describe("REST3App", () => {
   })
 
   if (process.env.PERF === "true") {
-    describe("Gas limit performance tests", () => {
+    describe("Performance tests", () => {
       async function playScenario(requestsPerBatch: number, serverCount: number) {
         const { contract, owner } = await deploy({ consensusMaxDuration: ethers.BigNumber.from(999999) })
         const wallets = await registerManyServers(contract, owner, serverCount)
@@ -666,7 +891,7 @@ describe("REST3App", () => {
         let counter = 0
         await runParallel(requestsPerBatch + 1, async i => {
           await contract.sendRequest(multihash.generate(`request_${i}`))
-          process.stdout.write(`\rSent request ${++counter}/${requestsPerBatch + 1}`)
+          process.stdout.write(`\r        Sent request ${++counter}/${requestsPerBatch + 1}`)
         })
         console.log()
 
@@ -698,7 +923,7 @@ describe("REST3App", () => {
         let maxPage = 0
         for (let i = 0; i <= maxPage && inactiveServers.length < 10; i++) {
           const res = await contract.connect(wallets[0]).getInactiveServers(i)
-          inactiveServers.push(...res[0].slice(0, 10))
+          inactiveServers.push(...res[0])
           maxPage = res[1].toNumber()
         }
 
@@ -706,7 +931,7 @@ describe("REST3App", () => {
         expect(await contract.getServerCount()).to.equal(Math.max(serverCount - 10, Math.ceil(serverCount * 0.75)))
       }
 
-      it("Should handle 300 servers and 6000 requests per batch without exploding gas limit", async () => {
+      it("Should handle 300 servers and 6000 reqs/batch without exploding computational resources", async () => {
         await playScenario(6000, 300)
       }).timeout(300000)
     })

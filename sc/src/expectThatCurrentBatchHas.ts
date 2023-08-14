@@ -9,12 +9,14 @@ async function expectThatCurrentBatchHas(
     nonce,
     stateIpfsHash,
     requests,
-    sizeOf
+    sizeOf,
+    expiresAt
   }: {
     nonce?: number
     stateIpfsHash?: Multihash
     requests?: Array<RequestStruct>
     sizeOf?: number
+    expiresAt?: number
   }
 ) {
   const batchView = await contract.getCurrentBatch(0)
@@ -29,6 +31,9 @@ async function expectThatCurrentBatchHas(
   }
   if (requests) {
     expect(batchView.requests).to.deep.equal(requests)
+  }
+  if (expiresAt) {
+    expect(batchView.expiresAt).to.equal(expiresAt)
   }
 }
 

@@ -19,21 +19,20 @@ contract REST3App is Ownable {
     using ConsensusLib for Consensus;
     using GlobalParamsValidator for GlobalParams;
 
-    bool public maintenanceMode;
-
+    // Public state
     GlobalParams public globalParams;
     uint public treasury;
-    uint public totalContributions;
     StakeLib.Stake private _stake; // publicly exposed via getStakeRequirement()
+    bool public maintenanceMode;
 
+    // Private state
     mapping(address => Server) private _servers;
     EnumerableSet.AddressSet private _serverSet;
-
     RequestQueue private _requestQueue;
-
     Batch private _batch;
     mapping(uint => Consensus) private _consensus;
-    mapping(address => uint) private _lastContribution;
+    mapping(address => uint) private _pendingContributions;
+    uint private _totalContributions;
     mapping(uint => BatchCoordinates)
         private _mapRequestNonceToBatchCoordinates;
 
@@ -54,8 +53,8 @@ contract REST3App is Ownable {
         _;
     }
 
-    modifier withLatestContributions() {
-        if (!applyLastContribution()) {
+    modifier withPendingContributions() {
+        if (!applyPendingContribution()) {
             return;
         }
         _;
@@ -79,6 +78,13 @@ contract REST3App is Ownable {
         _;
     }
 
+    modifier disableOnMaintenance() {
+        if (maintenanceMode) {
+            revert MaintenanceModeEnabled();
+        }
+        _;
+    }
+
     event BatchCompleted(uint indexed batchNonce);
     event BatchFailed(uint indexed batchNonce);
     event BatchResultHashSubmitted();
@@ -94,6 +100,7 @@ contract REST3App is Ownable {
     error HousekeepCooldown(uint nextHousekeepTimestamp);
     error InsufficientStake();
     error InvalidBatchNonce();
+    error InvalidRequestNonce();
     error MaintenanceModeEnabled();
     error MaintenanceModeRequired();
     error MaxServersReached(uint limit);
@@ -113,7 +120,7 @@ contract REST3App is Ownable {
     }
 
     receive() external payable {
-        donateToTreasury();
+        _addToTreasury(msg.value);
     }
 
     function setMaintenanceMode(bool value) external onlyOwner {
@@ -130,10 +137,8 @@ contract REST3App is Ownable {
      * This function may be called by anyone who wants to add funds to treasury.
      * Royalties are given to the owner as specified in global params.
      */
-    function donateToTreasury() public payable {
-        uint royalties = (msg.value * globalParams.ownerRoyaltiesPercent) / 100;
-        treasury += msg.value - royalties;
-        payable(owner()).transfer(royalties);
+    function donateToTreasury() external payable {
+        _addToTreasury(msg.value);
     }
 
     /**
@@ -183,9 +188,9 @@ contract REST3App is Ownable {
     function serverUnregister()
         external
         onlyRegistered
-        withLatestContributions
+        withPendingContributions
     {
-        treasury += _slash(msg.sender, globalParams.slashPercent);
+        _addToTreasury(_slash(msg.sender, globalParams.slashPercent));
         _unregister(msg.sender);
     }
 
@@ -200,22 +205,27 @@ contract REST3App is Ownable {
         returns (uint)
     {
         Server memory s = _servers[msg.sender];
-        --s.contributions;
-        return _calculateTreasuryShare(s.contributions, totalContributions);
+        unchecked {
+            --s.contributions;
+        }
+        return _calculateTreasuryShare(s.contributions, _totalContributions);
     }
 
     /**
      * Claim rewards corresponding to a share of the treasury calculated from
      * contribution points.
      */
-    function claimRewards() external onlyRegistered withLatestContributions {
+    function claimRewards() external onlyRegistered withPendingContributions {
         Server storage s = _servers[msg.sender];
-        uint rewards = _calculateTreasuryShare(
-            (s.contributions - 1),
-            totalContributions
-        );
+        uint shares;
+        unchecked {
+            shares = s.contributions - 1;
+        }
+        uint rewards = _calculateTreasuryShare(shares, _totalContributions);
         payable(msg.sender).transfer(rewards);
-        treasury -= rewards;
+        unchecked {
+            treasury -= rewards;
+        }
         _resetContributionPoints(s);
     }
 
@@ -264,7 +274,7 @@ contract REST3App is Ownable {
         external
         onlyRegistered
         activeConsensus(batchNonce)
-        withLatestContributions
+        withPendingContributions
     {
         Consensus storage consensus = _consensus[batchNonce];
         if (consensus.hasParticipated(msg.sender)) {
@@ -280,7 +290,7 @@ contract REST3App is Ownable {
         } else if (state == ConsensusState.FAILED) {
             _handleConsensusFailed(batchNonce);
         }
-        _lastContribution[msg.sender] = batchNonce;
+        _pendingContributions[msg.sender] = batchNonce;
         _servers[msg.sender].lastSeen = block.timestamp;
         emit BatchResultHashSubmitted();
     }
@@ -294,7 +304,7 @@ contract REST3App is Ownable {
     function skipBatchIfConsensusExpired()
         external
         onlyRegistered
-        withLatestContributions
+        withPendingContributions
     {
         uint batchNonce = _batch.nonce;
         Consensus storage consensus = _consensus[batchNonce];
@@ -303,18 +313,6 @@ contract REST3App is Ownable {
             _incContributionPoints(_servers[msg.sender]);
             _servers[msg.sender].lastSeen = block.timestamp;
         }
-    }
-
-    /**
-     * Get the timestamp after which the server is able to call housekeepInactive() again.
-     */
-    function getNextHousekeepTimestamp()
-        external
-        view
-        onlyRegistered
-        returns (uint)
-    {
-        return _servers[msg.sender].nextHousekeepAt;
     }
 
     function getInactiveServers(
@@ -331,9 +329,13 @@ contract REST3App is Ownable {
             _serverSet.length(),
             INACTIVE_SERVERS_PAGE_SIZE
         );
-        address[] memory inactiveServers = new address[](pg.currentPageSize);
+        address[] memory inactiveServers = new address[](HOUSEKEEP_MAX_SIZE);
         uint inactiveIndex;
-        for (uint i; i < pg.currentPageSize; ++i) {
+        for (
+            uint i;
+            i < pg.currentPageSize && inactiveIndex < HOUSEKEEP_MAX_SIZE;
+            ++i
+        ) {
             address addr = _serverSet.at(pg.offset + i);
             if (addr == msg.sender) continue;
             uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
@@ -343,7 +345,7 @@ contract REST3App is Ownable {
             }
         }
         // Reduce the size of the array to fit content
-        uint sizeDelta = pg.currentPageSize - inactiveIndex;
+        uint sizeDelta = HOUSEKEEP_MAX_SIZE - inactiveIndex;
         if (sizeDelta > 0) {
             assembly {
                 mstore(inactiveServers, sub(mload(inactiveServers), sizeDelta))
@@ -360,7 +362,7 @@ contract REST3App is Ownable {
      */
     function housekeepInactive(
         address[] calldata inactiveServers
-    ) external onlyRegistered canHousekeep withLatestContributions {
+    ) external onlyRegistered canHousekeep withPendingContributions {
         Server storage server = _servers[msg.sender];
         uint length = Math.min(inactiveServers.length, HOUSEKEEP_MAX_SIZE);
         uint cleanCount;
@@ -370,14 +372,21 @@ contract REST3App is Ownable {
         for (uint i; i < length; ++i) {
             address addr = inactiveServers[i];
             if (addr == msg.sender || !_serverSet.contains(addr)) continue;
-            uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
+            uint elapsedSeen;
+            unchecked {
+                elapsedSeen = block.timestamp - _servers[addr].lastSeen;
+            }
             if (elapsedSeen > inactivityDuration) {
                 totalSlashed += _slash(addr, slashPercent);
                 _unregister(addr);
-                ++cleanCount;
+                unchecked {
+                    ++cleanCount;
+                }
             }
         }
-        if (totalSlashed > 0) treasury += totalSlashed;
+        if (totalSlashed > 0) {
+            _addToTreasury(totalSlashed);
+        }
         _giveContributionPoints(
             server,
             globalParams.housekeepBaseReward +
@@ -398,14 +407,14 @@ contract REST3App is Ownable {
      *
      * @return bool false if the server got unregistered following this operation.
      */
-    function applyLastContribution() public onlyRegistered returns (bool) {
+    function applyPendingContribution() public onlyRegistered returns (bool) {
         Contribution contribution = _getLastContribution();
-        _lastContribution[msg.sender] = 0;
+        _pendingContributions[msg.sender] = 0;
         if (contribution == Contribution.REWARD) {
             _incContributionPoints(_servers[msg.sender]);
             return true;
         } else if (contribution == Contribution.SLASH) {
-            treasury += _slash(msg.sender, globalParams.slashPercent);
+            _addToTreasury(_slash(msg.sender, globalParams.slashPercent));
             if (_servers[msg.sender].stake < globalParams.minStake) {
                 _unregister(msg.sender);
                 return false;
@@ -433,10 +442,9 @@ contract REST3App is Ownable {
      * it is loaded immediately in a batch, otherwise it is enqueued and will be
      * processed in next batch.
      */
-    function sendRequest(IPFSMultihash calldata requestIpfsHash) external {
-        if (maintenanceMode) {
-            revert MaintenanceModeEnabled();
-        }
+    function sendRequest(
+        IPFSMultihash calldata requestIpfsHash
+    ) external disableOnMaintenance {
         _queueRequest(requestIpfsHash);
         if (_batchSize() == 0) {
             _batch.inProgress = true;
@@ -451,8 +459,11 @@ contract REST3App is Ownable {
      */
     function getResponse(
         uint nonce
-    ) external view returns (IPFSMultihash memory, uint position) {
+    ) external view returns (IPFSMultihash memory, uint) {
         address author = _requestQueue.queue[nonce].author;
+        if (author == address(0)) {
+            revert InvalidRequestNonce();
+        }
         if (author != msg.sender) {
             revert RequestAuthorMismatch();
         }
@@ -463,8 +474,20 @@ contract REST3App is Ownable {
     // Internals
     // --------------
 
+    function _addToTreasury(uint value) internal {
+        uint royalties = (value * globalParams.ownerRoyaltiesPercent) / 100;
+        uint toAdd;
+        unchecked {
+            toAdd = value - royalties;
+        }
+        treasury += toAdd;
+        payable(owner()).transfer(royalties);
+    }
+
     function _batchSize() internal view returns (uint) {
-        return _requestQueue.head - _batch.head;
+        unchecked {
+            return _requestQueue.head - _batch.head;
+        }
     }
 
     function _retrieveResponseFromNonce(
@@ -494,15 +517,18 @@ contract REST3App is Ownable {
 
     function _calculateAndSaveBatchCoordinates(uint nonce) internal {
         uint queueHead = _requestQueue.head;
-        uint queueTail = nonce + 1;
-        uint queueSize = queueTail - queueHead;
+        uint maxBatchSize = globalParams.maxBatchSize;
         BatchCoordinates storage coords = _mapRequestNonceToBatchCoordinates[
             nonce
         ];
-        uint batchNonce = _batch.nonce + 1 + (queueSize / BATCH_PAGE_SIZE);
-        uint position = queueSize % BATCH_PAGE_SIZE;
-        coords.batchNonce = batchNonce;
-        coords.position = position;
+        unchecked {
+            uint positionInQueue = nonce - queueHead;
+            coords.batchNonce =
+                _batch.nonce +
+                (positionInQueue / maxBatchSize) +
+                1;
+            coords.position = positionInQueue % maxBatchSize;
+        }
     }
 
     function _prepareNextBatch() internal {
@@ -514,7 +540,13 @@ contract REST3App is Ownable {
         _batch.head = oldHead;
         _requestQueue.head = newHead;
         if (newHead - oldHead > 0) {
-            uint nonce = ++_batch.nonce;
+            uint nonce;
+            unchecked {
+                // Latest batch nonce is always <= latest request nonce
+                // So request counter would have reached max value way
+                // before batch counter
+                nonce = ++_batch.nonce;
+            }
             Consensus storage consensus = _consensus[nonce];
             consensus.startedAt = block.timestamp;
             emit NextBatchReady();
@@ -542,7 +574,7 @@ contract REST3App is Ownable {
     }
 
     function _getLastContribution() internal view returns (Contribution) {
-        uint lastContribution = _lastContribution[msg.sender];
+        uint lastContribution = _pendingContributions[msg.sender];
         if (lastContribution == 0) return Contribution.NEUTRAL;
         Consensus storage consensus = _consensus[lastContribution];
         bytes32 resultHash = consensus.resultWithLargestCount;
@@ -566,16 +598,18 @@ contract REST3App is Ownable {
         uint points
     ) internal {
         server.contributions += points;
-        totalContributions += points;
+        _totalContributions += points;
     }
 
     function _incContributionPoints(Server storage server) internal {
         ++server.contributions;
-        ++totalContributions;
+        ++_totalContributions;
     }
 
     function _resetContributionPoints(Server storage server) internal {
-        totalContributions -= server.contributions - 1;
+        unchecked {
+            _totalContributions -= server.contributions - 1;
+        }
         server.contributions = 1;
     }
 
@@ -592,7 +626,9 @@ contract REST3App is Ownable {
     function _slash(address addr, uint slashPercent) internal returns (uint) {
         uint stake = _servers[addr].stake;
         uint toSlash = (stake * slashPercent) / 100;
-        stake -= toSlash;
+        unchecked {
+            stake -= toSlash;
+        }
         _servers[addr].stake = stake;
         return toSlash;
     }
