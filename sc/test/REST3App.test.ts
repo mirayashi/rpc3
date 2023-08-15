@@ -80,7 +80,7 @@ describe("REST3App", () => {
         ...globalParams,
         minStake: 0,
         consensusQuorumPercent: 111,
-        consensusRatioPercent: 111,
+        consensusMajorityPercent: 111,
         ownerRoyaltiesPercent: 111,
         slashPercent: 111
       }
@@ -89,20 +89,20 @@ describe("REST3App", () => {
         .withArgs([
           toStruct({ field: "minStake", reason: "should be nonzero" }),
           toStruct({ field: "consensusQuorumPercent", reason: "should be between 1 and 100" }),
-          toStruct({ field: "consensusRatioPercent", reason: "should be between 51 and 100" }),
+          toStruct({ field: "consensusMajorityPercent", reason: "should be between 51 and 100" }),
           toStruct({ field: "ownerRoyaltiesPercent", reason: "should be between 0 and 100" }),
           toStruct({ field: "slashPercent", reason: "should be between 0 and 100" })
         ])
       const invalidParams2 = {
         ...globalParams,
         consensusQuorumPercent: 0,
-        consensusRatioPercent: 49
+        consensusMajorityPercent: 49
       }
       await expect(contract.setGlobalParams(invalidParams2))
         .to.be.revertedWithCustomError(contract, "InvalidGlobalParams")
         .withArgs([
           toStruct({ field: "consensusQuorumPercent", reason: "should be between 1 and 100" }),
-          toStruct({ field: "consensusRatioPercent", reason: "should be between 51 and 100" })
+          toStruct({ field: "consensusMajorityPercent", reason: "should be between 51 and 100" })
         ])
     })
   })
@@ -175,10 +175,9 @@ describe("REST3App", () => {
 
     it("Should not register server, below minimum stake", async () => {
       const { contract } = await loadFixture(deploy)
-      await expect(contract.serverRegister({ value: ethers.utils.parseEther("0.5") })).to.be.revertedWithCustomError(
-        contract,
-        "InsufficientStake"
-      )
+      await expect(contract.serverRegister({ value: ethers.utils.parseEther("0.5") }))
+        .to.be.revertedWithCustomError(contract, "InsufficientStake")
+        .withArgs(ethers.utils.parseEther("1"))
     })
 
     it("Should not register server, stake requirement has been doubled", async () => {
@@ -298,10 +297,9 @@ describe("REST3App", () => {
         stateIpfsHash,
         globalParams: { consensusMaxDuration }
       } = await loadFixture(deployAndRegisterOwner)
-      await expect(contract.connect(user1).sendRequest(multihash.generate("request1"))).to.emit(
-        contract,
-        "NextBatchReady"
-      )
+      await expect(contract.connect(user1).sendRequest(multihash.generate("request1")))
+        .to.emit(contract, "NextBatchReady")
+        .withArgs(1)
       await expectThatCurrentBatchHas(contract, {
         nonce: 1,
         stateIpfsHash,
@@ -429,7 +427,9 @@ describe("REST3App", () => {
       // First batch always contains one element (the first request) so we skip it
       await contract.connect(user1).submitBatchResult(1, RESULT_1)
       await contract.connect(user2).submitBatchResult(1, RESULT_1)
-      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1)).to.emit(contract, "NextBatchReady")
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, "NextBatchReady")
+        .withArgs(2)
 
       const firstPage = await contract.connect(user1).getCurrentBatch(0)
       expect(firstPage.nonce).to.equal(2)
@@ -448,7 +448,7 @@ describe("REST3App", () => {
         .withArgs(1)
     })
 
-    it("Should emit BatchCompleted and process contributions if quorum and ratio is reached", async () => {
+    it("Should emit BatchCompleted and process contributions if quorum and majority is reached", async () => {
       const {
         globalParams: { inactivityDuration },
         contract,
@@ -528,7 +528,7 @@ describe("REST3App", () => {
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0.02"))
     })
 
-    it("Should emit BatchFailed if quorum is reached but not ratio", async () => {
+    it("Should emit BatchFailed if quorum is reached but not majority", async () => {
       const {
         contract,
         users: [user1, user2, user3]
@@ -601,7 +601,9 @@ describe("REST3App", () => {
 
       await contract.sendRequest(multihash.generate("request2"))
 
-      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1)).to.emit(contract, "NextBatchReady")
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, "NextBatchReady")
+        .withArgs(2)
 
       await expectThatCurrentBatchHas(contract.connect(user1), {
         nonce: 2,
@@ -674,15 +676,21 @@ describe("REST3App", () => {
       // Consensus batch 1
       await contract.connect(user1).submitBatchResult(1, RESULT_1)
       await contract.connect(user2).submitBatchResult(1, RESULT_1)
-      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1)).to.emit(contract, "NextBatchReady")
+      await expect(contract.connect(user3).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, "NextBatchReady")
+        .withArgs(2)
       // Consensus batch 2
       await contract.connect(user1).submitBatchResult(2, RESULT_2)
       await contract.connect(user2).submitBatchResult(2, RESULT_2)
-      await expect(contract.connect(user3).submitBatchResult(2, RESULT_2)).to.emit(contract, "NextBatchReady")
+      await expect(contract.connect(user3).submitBatchResult(2, RESULT_2))
+        .to.emit(contract, "NextBatchReady")
+        .withArgs(3)
       // Consensus batch 3
       await contract.connect(user1).submitBatchResult(3, RESULT_3)
       await contract.connect(user2).submitBatchResult(3, RESULT_3)
-      await expect(contract.connect(user3).submitBatchResult(3, RESULT_3)).to.emit(contract, "BatchCompleted")
+      await expect(contract.connect(user3).submitBatchResult(3, RESULT_3))
+        .to.emit(contract, "BatchCompleted")
+        .withArgs(3)
 
       expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseIpfsHash), 0])
       expect(await contract.getResponse(1)).to.deep.equal([toStruct(RESULT_2.responseIpfsHash), 0])
@@ -806,7 +814,7 @@ describe("REST3App", () => {
         housekeepBaseReward.add(housekeepCleanReward).add(2) // earned 2 points from submitting result
       )
 
-      // user4 was slashed 0.16 because of inactivity, user3 was slashed 0.08 because they submitted wrong result in the
+      // user4 dfdf dsfwas slashed 0.16 because of inactivity, user3 was slashed 0.08 because they submitted wrong result in the
       // fixture
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0.24"))
       expect(await contract.payments(user4.address)).to.equal(ethers.utils.parseEther("7.84"))
@@ -827,7 +835,9 @@ describe("REST3App", () => {
       await contract.connect(user1).skipBatchIfConsensusExpired()
 
       // users 1, 2 and 3 will get a contribution point by completing next batch
-      await expect(contract.sendRequest(multihash.generate("request2"))).to.emit(contract, "NextBatchReady")
+      await expect(contract.sendRequest(multihash.generate("request2")))
+        .to.emit(contract, "NextBatchReady")
+        .withArgs(2)
       await contract.connect(user1).submitBatchResult(2, RESULT_2)
       await contract.connect(user2).submitBatchResult(2, RESULT_2)
       await contract.connect(user3).submitBatchResult(2, RESULT_2)
@@ -837,7 +847,9 @@ describe("REST3App", () => {
 
       // users 1, 2 and 3 will get a contribution point by completing next batch User 3 will get extra points for
       // housekeeping
-      await expect(contract.sendRequest(multihash.generate("request3"))).to.emit(contract, "NextBatchReady")
+      await expect(contract.sendRequest(multihash.generate("request3")))
+        .to.emit(contract, "NextBatchReady")
+        .withArgs(3)
       await contract.connect(user1).submitBatchResult(3, RESULT_3)
       await contract.connect(user2).submitBatchResult(3, RESULT_3)
       await contract.connect(user3).submitBatchResult(3, RESULT_3)

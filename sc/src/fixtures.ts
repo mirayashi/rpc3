@@ -13,7 +13,7 @@ export async function deploy(globalParamsOverrides?: object) {
     minStake: ethers.utils.parseEther("1"),
     consensusMaxDuration: ethers.BigNumber.from(60),
     consensusQuorumPercent: ethers.BigNumber.from(75),
-    consensusRatioPercent: ethers.BigNumber.from(51),
+    consensusMajorityPercent: ethers.BigNumber.from(51),
     inactivityDuration: ethers.BigNumber.from(3600),
     ownerRoyaltiesPercent: ethers.BigNumber.from(0),
     slashPercent: ethers.BigNumber.from(2),

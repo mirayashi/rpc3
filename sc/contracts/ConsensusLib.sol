@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.16;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "./BusinessTypes.sol";
@@ -36,7 +36,7 @@ library ConsensusLib {
             if (
                 (self.countByResult[self.resultWithLargestCount] * 100) /
                     self.numberOfParticipants >=
-                globalParams.consensusRatioPercent
+                globalParams.consensusMajorityPercent
             ) {
                 return ConsensusState.SUCCESS;
             } else {

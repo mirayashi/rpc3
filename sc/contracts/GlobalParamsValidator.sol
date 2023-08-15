@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.16;
 
 import {GlobalParams} from "./BusinessTypes.sol";
 
@@ -32,9 +32,9 @@ library GlobalParamsValidator {
         );
         if (bytes(violations[i].field).length > 0) ++i;
         violations[i] = _require(
-            self.consensusRatioPercent >= 51 &&
-                self.consensusRatioPercent <= 100,
-            "consensusRatioPercent",
+            self.consensusMajorityPercent >= 51 &&
+                self.consensusMajorityPercent <= 100,
+            "consensusMajorityPercent",
             "should be between 51 and 100"
         );
         if (bytes(violations[i].field).length > 0) ++i;

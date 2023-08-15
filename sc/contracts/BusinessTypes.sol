@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.16;
 
 uint constant BATCH_PAGE_SIZE = 1000;
 uint constant INACTIVE_SERVERS_PAGE_SIZE = 200;
@@ -56,7 +56,7 @@ struct GlobalParams {
     uint minStake;
     uint consensusMaxDuration;
     uint consensusQuorumPercent;
-    uint consensusRatioPercent;
+    uint consensusMajorityPercent;
     uint inactivityDuration;
     uint ownerRoyaltiesPercent;
     uint slashPercent;
