@@ -2,6 +2,9 @@
 pragma solidity ^0.8.20;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {PullPayment} from "@openzeppelin/contracts/security/PullPayment.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/security/Pausable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -13,7 +16,7 @@ import {GlobalParamsValidator} from "./GlobalParamsValidator.sol";
 
 import "hardhat/console.sol";
 
-contract REST3App is Ownable {
+contract REST3App is Ownable, PullPayment, ReentrancyGuard, Pausable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using StakeLib for StakeLib.Stake;
     using ConsensusLib for Consensus;
@@ -23,7 +26,6 @@ contract REST3App is Ownable {
     GlobalParams public globalParams;
     uint public treasury;
     StakeLib.Stake private _stake; // publicly exposed via getStakeRequirement()
-    bool public maintenanceMode;
 
     // Private state
     mapping(address => Server) private _servers;
@@ -68,26 +70,19 @@ contract REST3App is Ownable {
         _;
     }
 
-    modifier whenProtocolIsPaused() {
-        if (!maintenanceMode) {
-            revert MaintenanceModeRequired();
-        }
+    modifier whenFullyPaused() {
+        _requirePaused();
         if (_batch.inProgress) {
             revert BatchInProgress();
         }
         _;
     }
 
-    modifier disableOnMaintenance() {
-        if (maintenanceMode) {
-            revert MaintenanceModeEnabled();
-        }
-        _;
-    }
-
+    event AddedToTreasury(uint amount, uint royalties);
     event BatchCompleted(uint indexed batchNonce);
     event BatchFailed(uint indexed batchNonce);
     event BatchResultHashSubmitted();
+    event GlobalParamsUpdated(GlobalParams newValue);
     event HousekeepSuccess(uint cleanCount, uint nextHousekeepTimestamp);
     event NextBatchReady();
     event RequestSubmitted(uint indexed requestNonce);
@@ -101,8 +96,6 @@ contract REST3App is Ownable {
     error InsufficientStake();
     error InvalidBatchNonce();
     error InvalidRequestNonce();
-    error MaintenanceModeEnabled();
-    error MaintenanceModeRequired();
     error MaxServersReached(uint limit);
     error ResultAlreadySubmitted();
     error ResponseNotAvailable();
@@ -119,22 +112,45 @@ contract REST3App is Ownable {
         _batch.initialStateIpfsHash = stateIpfsHash;
     }
 
+    /**
+     * @dev Direct transfers to the contract address add funds to treasury.
+     */
     receive() external payable {
         _addToTreasury(msg.value);
     }
 
-    function setMaintenanceMode(bool value) external onlyOwner {
-        maintenanceMode = value;
-    }
-
-    function setGlobalParams(
-        GlobalParams memory globalParams_
-    ) external onlyOwner whenProtocolIsPaused {
-        globalParams = globalParams_.validate();
+    /**
+     * @dev Pause the contract. When paused, the contract won't be accepting
+     * any more requests from users.
+     * Only the owner may call this function.
+     */
+    function pause() external onlyOwner {
+        _pause();
     }
 
     /**
-     * This function may be called by anyone who wants to add funds to treasury.
+     * @dev Resume the contract. Users may submit requests again.
+     * Only the owner may call this function.
+     */
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /**
+     * @dev Update the global params of the contract. Requires the contract to be
+     * fully paused, that is, the contract must be in a paused state (no more
+     * requests are being accepted) and no batch should be in progress (queue
+     * must be empty). Only the owner may call this function.
+     */
+    function setGlobalParams(
+        GlobalParams memory globalParams_
+    ) external onlyOwner whenFullyPaused {
+        globalParams = globalParams_.validate();
+        emit GlobalParamsUpdated(globalParams_);
+    }
+
+    /**
+     * @dev This function may be called by anyone who wants to add funds to treasury.
      * Royalties are given to the owner as specified in global params.
      */
     function donateToTreasury() external payable {
@@ -142,21 +158,21 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Get the minimum amount to stake in order to register now as a server.
+     * @dev Get the minimum amount to stake in order to register now as a server.
      */
     function getStakeRequirement() external view returns (uint) {
         return _stake.calculateAmount();
     }
 
     /**
-     * Get the number of servers currently registered
+     * @dev Get the number of servers currently registered
      */
     function getServerCount() external view returns (uint) {
         return _serverSet.length();
     }
 
     /**
-     * Register as a server. Requires to send a value that is greater than or
+     * @dev Register as a server. Requires to send a value that is greater than or
      * equal to the minimum stake requirement accessible via getStakeRequirement().
      */
     function serverRegister() external payable {
@@ -180,7 +196,7 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Unregister a server. Contribution points are forfeited if no withdrawal is
+     * @dev Unregister a server. Contribution points are forfeited if no withdrawal is
      * made beforehand. Unregistering costs a fee of a certain % of staked amount
      * defined in global params (to discourage from unregistering only to register
      * again with a lower stake requirement).
@@ -195,8 +211,10 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Calculate the rewards that can be claimed from the server's contributions.
+     * @dev Calculate the rewards that can be claimed from the server's contributions.
      * Does not take into account the most recent contribution, hence "estimate".
+     * This can be worked around by calling applyPendingContribution() before
+     * calling this function.
      */
     function estimateClaimableRewards()
         external
@@ -212,25 +230,37 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Claim rewards corresponding to a share of the treasury calculated from
+     * @dev Claim rewards corresponding to a share of the treasury calculated from
      * contribution points.
      */
-    function claimRewards() external onlyRegistered withPendingContributions {
+    function claimRewards()
+        external
+        nonReentrant
+        onlyRegistered
+        withPendingContributions
+    {
         Server storage s = _servers[msg.sender];
         uint shares;
         unchecked {
             shares = s.contributions - 1;
         }
         uint rewards = _calculateTreasuryShare(shares, _totalContributions);
-        payable(msg.sender).transfer(rewards);
         unchecked {
             treasury -= rewards;
         }
         _resetContributionPoints(s);
+        payable(msg.sender).transfer(rewards);
     }
 
     /**
-     * Get all data from the current batch.
+     * @dev Get all data from the current batch. Servers are expected to process
+     * each request in order, initializing their state as per
+     * initialStateIpfsHash. The result is then later submitted via
+     * submitBatchResult().
+     *
+     * If the batch is too large, this function is paginated so it
+     * may be necessary to call this function once for each page in order to
+     * get the full batch data.
      */
     function getCurrentBatch(
         uint page
@@ -261,11 +291,25 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Submit the result hash for a specific batch. Result is taken into
+     * @dev Submit the result for a specific batch. Result is taken into
      * account if and only if:
      * - Provided batch nonce is valid
      * - Result has not already been submitted
      * - Consensus has not expired
+     *
+     * If the conditions above pass, three situations are possible:
+     * - Consensus is still awaiting more results from other servers: the
+     *   result passed to this function will simply be recorded and no other
+     *   action will be made.
+     * - Consensus between servers has been reached: the result that has been
+     *   agreed on (may be different from the one passed to this function) is
+     *   made available to clients through getResponse(), and each server who
+     *   participated will either receive a reward point or be slashed
+     *   accordingly next time they will interact with the contract. If the
+     *   queue is not empty, a new batch will be prepared.
+     * - Consensus between servers has failed (required majority not reached):
+     *   batch is marked as failed and moves on to next batch (if queue is not
+     *   empty).
      */
     function submitBatchResult(
         uint batchNonce,
@@ -296,7 +340,7 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Servers are expected to call this function when the consensus of the current batch
+     * @dev Servers are expected to call this function when the consensus of the current batch
      * has expired. This is so the protocol doesn't get stuck if nobody is submitting
      * results after batch expiration. One that successfully skips a batch via this function
      * receives a contribution point.
@@ -315,6 +359,15 @@ contract REST3App is Ownable {
         }
     }
 
+    /**
+     * @dev Servers that are allowed to start a housekeep process may grab a list
+     * of inactive servers here. Since looping through all servers is quite
+     * expensive, this function is paginated.
+     * Note that pagination is made based on the whole set of registered
+     * servers, not the set of actually inactive servers. So it is possible
+     * to have a multi-page result where each page contain very few or no
+     * elements at all.
+     */
     function getInactiveServers(
         uint page
     )
@@ -355,10 +408,14 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Clean up inactive servers. A single server may
-     * call this function once in a while, cooldown gets higher as more servers
-     * join the protocol. Each call give contribution points on success, even if
-     * no server is inactive
+     * @dev Clean up inactive servers. A single server may call this function once
+     * in a while, cooldown gets higher as more servers join the protocol.
+     * Each call guarantee a base amount of contribution points on success, even
+     * if called with empty array or an array with some active servers.
+     * This is to encourage servers to call this function immediately when
+     * cooldown is over, instead of having them wait until more servers become
+     * inactive, which may create competition between housekeepers (which is the
+     * very thing the cooldown logic is designed to combat).
      */
     function housekeepInactive(
         address[] calldata inactiveServers
@@ -399,7 +456,7 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Apply last contribution of the current server.
+     * @dev Apply last contribution of the current server.
      * It is generally not necessary to call this manually as it is done
      * automatically when interacting with the contract. But it may be useful
      * in order to get more accurate information when calling
@@ -424,7 +481,7 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Get all data related to the server calling this function.
+     * @dev Get all data related to the server calling this function.
      */
     function getServerData()
         external
@@ -438,13 +495,13 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Clients may send requests through this function. If current batch is empty,
+     * @dev Clients may send requests through this function. If current batch is empty,
      * it is loaded immediately in a batch, otherwise it is enqueued and will be
      * processed in next batch.
      */
     function sendRequest(
         IPFSMultihash calldata requestIpfsHash
-    ) external disableOnMaintenance {
+    ) external whenNotPaused {
         _queueRequest(requestIpfsHash);
         if (_batchSize() == 0) {
             _batch.inProgress = true;
@@ -453,21 +510,22 @@ contract REST3App is Ownable {
     }
 
     /**
-     * Clients may read the response for their request here. They are expected
-     * to listen to ResponseReceived events matching their request nonce and
-     * then call this function.
+     * @dev Clients may read the response for their request here. They are expected
+     * to listen to BatchCompleted events matching the batch nonce they got from
+     * submitting the request (RequestSubmitted event) and then call this function
+     * passing the request nonce.
      */
     function getResponse(
-        uint nonce
+        uint requestNonce
     ) external view returns (IPFSMultihash memory, uint) {
-        address author = _requestQueue.queue[nonce].author;
+        address author = _requestQueue.queue[requestNonce].author;
         if (author == address(0)) {
             revert InvalidRequestNonce();
         }
         if (author != msg.sender) {
             revert RequestAuthorMismatch();
         }
-        return _retrieveResponseFromNonce(nonce);
+        return _retrieveResponseFromNonce(requestNonce);
     }
 
     // --------------
@@ -481,7 +539,8 @@ contract REST3App is Ownable {
             toAdd = value - royalties;
         }
         treasury += toAdd;
-        payable(owner()).transfer(royalties);
+        emit AddedToTreasury(toAdd, royalties);
+        _asyncTransfer(owner(), royalties);
     }
 
     function _batchSize() internal view returns (uint) {
@@ -635,7 +694,7 @@ contract REST3App is Ownable {
 
     function _unregister(address addr) internal {
         Server storage s = _servers[addr];
-        payable(addr).transfer(s.stake);
+        _asyncTransfer(addr, s.stake);
         _serverSet.remove(addr);
         _resetContributionPoints(s);
         delete _servers[addr];

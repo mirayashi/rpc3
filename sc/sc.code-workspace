@@ -5,6 +5,7 @@
 		}
 	],
 	"settings": {
+		"editor.wordWrapColumn": 120,
 		"editor.formatOnSave": true,
 		"solidity.defaultCompiler": "localNodeModule",
 		"solidity.enabledAsYouTypeCompilationErrorCheck": true,
@@ -13,6 +14,7 @@
 		"prettier.semi": false,
 		"prettier.tabWidth": 2,
 		"prettier.printWidth": 120,
-		"prettier.trailingComma": "none"
+		"prettier.trailingComma": "none",
+		"rewrap.autoWrap.enabled": false
 	}
 }

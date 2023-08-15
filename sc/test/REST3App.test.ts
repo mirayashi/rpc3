@@ -7,7 +7,7 @@ import multihash from "../src/multihash"
 import runParallel from "../src/runParallel"
 import {
   deploy,
-  deployAndEnableMaintenanceMode,
+  deployAndPauseContract,
   deployAndMake220UsersHousekeepable,
   deployAndReachConsensus,
   deployAndRegister4Users,
@@ -36,7 +36,8 @@ describe("REST3App", () => {
         users: [user1]
       } = await loadFixture(deploy)
       const functions = [
-        contract.connect(user1).setMaintenanceMode(true),
+        contract.connect(user1).pause(),
+        contract.connect(user1).unpause(),
         contract.connect(user1).setGlobalParams(globalParams)
       ]
       for (const f of functions) {
@@ -44,36 +45,37 @@ describe("REST3App", () => {
       }
     })
 
-    it("Should enable maintenance mode", async () => {
-      const { contract } = await loadFixture(deploy)
-      await expect(contract.setMaintenanceMode(true)).not.to.be.reverted
-      expect(await contract.maintenanceMode()).to.be.true
+    it("Should pause and unpause contract", async () => {
+      const { contract, owner } = await loadFixture(deploy)
+      await expect(contract.pause()).to.emit(contract, "Paused").withArgs(owner.address)
+      expect(await contract.paused()).to.be.true
+      await expect(contract.unpause()).to.emit(contract, "Unpaused").withArgs(owner.address)
+      expect(await contract.paused()).to.be.false
     })
 
     it("Should update global params", async () => {
-      const { contract, globalParams } = await loadFixture(deployAndEnableMaintenanceMode)
+      const { contract, globalParams } = await loadFixture(deployAndPauseContract)
       const newGlobalParams = { ...globalParams, minStake: ethers.utils.parseEther("5") }
-      await expect(contract.setGlobalParams(newGlobalParams)).not.to.be.reverted
+      await expect(contract.setGlobalParams(newGlobalParams))
+        .to.emit(contract, "GlobalParamsUpdated")
+        .withArgs(toStruct(newGlobalParams))
       expect(await contract.globalParams()).to.deep.equal(toStruct(newGlobalParams))
     })
 
-    it("Should revert on setGlobalParams if maintenance mode is not enabled", async () => {
+    it("Should revert on setGlobalParams if contract is not paused", async () => {
       const { contract, globalParams } = await loadFixture(deploy)
-      await expect(contract.setGlobalParams(globalParams)).to.be.revertedWithCustomError(
-        contract,
-        "MaintenanceModeRequired"
-      )
+      await expect(contract.setGlobalParams(globalParams)).to.be.revertedWith("Pausable: not paused")
     })
 
     it("Should revert on setGlobalParams if a batch is in progress", async () => {
       const { contract, globalParams } = await loadFixture(deploy)
       await contract.sendRequest(multihash.generate("some request"))
-      await contract.setMaintenanceMode(true)
+      await contract.pause()
       await expect(contract.setGlobalParams(globalParams)).to.be.revertedWithCustomError(contract, "BatchInProgress")
     })
 
     it("Should revert on setGlobalParams because params are invalid", async () => {
-      const { contract, globalParams } = await loadFixture(deployAndEnableMaintenanceMode)
+      const { contract, globalParams } = await loadFixture(deployAndPauseContract)
       const invalidParams = {
         ...globalParams,
         minStake: 0,
@@ -119,14 +121,11 @@ describe("REST3App", () => {
         owner,
         users: [user1]
       } = await deploy({ ownerRoyaltiesPercent: 5 })
-      const ownerBalance = await ethers.provider.getBalance(owner.address)
-      await expect(contract.connect(user1).donateToTreasury({ value: ethers.utils.parseEther("10") })).not.to.be
-        .reverted
+      await expect(contract.connect(user1).donateToTreasury({ value: ethers.utils.parseEther("10") }))
+        .to.emit(contract, "AddedToTreasury")
+        .withArgs(ethers.utils.parseEther("9.5"), ethers.utils.parseEther("0.5"))
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("9.5"))
-      expect(await ethers.provider.getBalance(contract.address)).to.equal(ethers.utils.parseEther("9.5"))
-      expect((await ethers.provider.getBalance(owner.address)).sub(ownerBalance)).to.equal(
-        ethers.utils.parseEther("0.5")
-      )
+      expect(await contract.payments(owner.address)).to.equal(ethers.utils.parseEther("0.5"))
     })
   })
 
@@ -194,8 +193,13 @@ describe("REST3App", () => {
 
     it("Should unregister server, with a fee that go to treasury", async () => {
       const { contract, owner } = await loadFixture(deployAndRegisterOwner)
-      await expect(contract.serverUnregister()).to.emit(contract, "ServerUnregistered").withArgs(owner.address)
+      await expect(contract.serverUnregister())
+        .to.emit(contract, "ServerUnregistered")
+        .withArgs(owner.address)
+        .and.to.emit(contract, "AddedToTreasury")
+        .withArgs(ethers.utils.parseEther("0.02"), 0)
       await expect(contract.getServerData()).to.be.revertedWithCustomError(contract, "ServerNotRegistered")
+      expect(await contract.payments(owner.address)).to.equal(ethers.utils.parseEther("0.98"))
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0.02")) // Slashed amount go to treasury
     })
 
@@ -282,12 +286,9 @@ describe("REST3App", () => {
   })
 
   describe("Request submission", () => {
-    it("Should revert if maintenance mode is enabled", async () => {
-      const { contract } = await loadFixture(deployAndEnableMaintenanceMode)
-      await expect(contract.sendRequest(multihash.generate("hello"))).to.be.revertedWithCustomError(
-        contract,
-        "MaintenanceModeEnabled"
-      )
+    it("Should revert if contract is paused", async () => {
+      const { contract } = await loadFixture(deployAndPauseContract)
+      await expect(contract.sendRequest(multihash.generate("hello"))).to.be.revertedWith("Pausable: paused")
     })
 
     it("Should initialize first batch", async () => {
@@ -522,7 +523,8 @@ describe("REST3App", () => {
       await contract.connect(user3).submitBatchResult(1, RESULT_1)
       usersLastSeen[2] = await time.latest()
 
-      await expect(contract.connect(user1).claimRewards()).to.emit(contract, "ServerUnregistered")
+      await expect(contract.connect(user1).applyPendingContribution()).to.emit(contract, "ServerUnregistered")
+      expect(await contract.payments(user1.address)).to.equal(ethers.utils.parseEther("0.98"))
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0.02"))
     })
 
@@ -804,9 +806,10 @@ describe("REST3App", () => {
         housekeepBaseReward.add(housekeepCleanReward).add(2) // earned 2 points from submitting result
       )
 
-      // user4 was slashed 0.16 because of inactivity, user3 was slashed 0.08 because
-      // they submitted wrong result in the fixture
+      // user4 was slashed 0.16 because of inactivity, user3 was slashed 0.08 because they submitted wrong result in the
+      // fixture
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0.24"))
+      expect(await contract.payments(user4.address)).to.equal(ethers.utils.parseEther("7.84"))
     })
   })
 
@@ -832,8 +835,8 @@ describe("REST3App", () => {
       // Elapse time so user3 can housekeep
       await time.increase(inactivityDuration.mul(3))
 
-      // users 1, 2 and 3 will get a contribution point by completing next batch
-      // User 3 will get extra points for housekeeping
+      // users 1, 2 and 3 will get a contribution point by completing next batch User 3 will get extra points for
+      // housekeeping
       await expect(contract.sendRequest(multihash.generate("request3"))).to.emit(contract, "NextBatchReady")
       await contract.connect(user1).submitBatchResult(3, RESULT_3)
       await contract.connect(user2).submitBatchResult(3, RESULT_3)
@@ -859,23 +862,23 @@ describe("REST3App", () => {
       await contract.connect(user1).claimRewards()
 
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("300"))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
       expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("40"))
       expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("260"))
 
       await contract.connect(user2).claimRewards()
 
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther("260"))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(0)
       expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("260"))
 
       await contract.connect(user3).claimRewards()
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther("0"))
+      expect(await contract.treasury()).to.equal(0)
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(0)
+      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(0)
     })
   })
 

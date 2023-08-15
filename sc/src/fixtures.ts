@@ -76,10 +76,10 @@ export async function deployAndReachConsensus(globalParamsOverrides?: object) {
   return fixture
 }
 
-export async function deployAndEnableMaintenanceMode(globalParamsOverrides?: object) {
+export async function deployAndPauseContract(globalParamsOverrides?: object) {
   const fixture = await deploy(globalParamsOverrides)
   const { contract } = fixture
-  await contract.setMaintenanceMode(true)
+  await contract.pause()
   return fixture
 }
 
