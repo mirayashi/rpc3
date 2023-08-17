@@ -1,0 +1,19 @@
+{
+  "name": "rest3-server",
+  "version": "1.0.0",
+  "description": "A server application for the rest3 project",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:daemon": "nodemon src/index.js"
+  },
+  "author": "Mirayashi",
+  "license": "MIT",
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "dependencies": {
+    "ipfs-log": "^6.0.0"
+  }
+}
