@@ -1,18 +1,21 @@
 {
-	"folders": [
-		{
-			"path": "."
-		}
-	],
-	"settings": {
-		"editor.wordWrapColumn": 120,
-		"editor.formatOnSave": true,
-		"editor.defaultFormatter": "esbenp.prettier-vscode",
-		"prettier.arrowParens": "avoid",
-		"prettier.semi": false,
-		"prettier.tabWidth": 2,
-		"prettier.printWidth": 120,
-		"prettier.trailingComma": "none",
-		"prettier.singleQuote": true
-	}
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "editor.indentSize": 2,
+    "editor.insertSpaces": true,
+    "editor.wordWrapColumn": 120,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "prettier.arrowParens": "avoid",
+    "prettier.semi": false,
+    "prettier.tabWidth": 2,
+    "prettier.useTabs": false,
+    "prettier.printWidth": 120,
+    "prettier.trailingComma": "none",
+    "prettier.singleQuote": true
+  }
 }

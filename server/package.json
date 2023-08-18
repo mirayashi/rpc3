@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "start:daemon": "nodemon src/index.js"
+    "start:daemon": "nodemon src/index.js",
+    "db:init": "node init/index.js"
   },
   "author": "Mirayashi",
   "license": "MIT",
@@ -14,6 +15,8 @@
     "nodemon": "^3.0.1"
   },
   "dependencies": {
-    "ipfs-log": "^6.0.0"
+    "ipfs-log": "^6.0.0",
+    "promised-sqlite3": "^2.1.0",
+    "sqlite3": "^5.1.6"
   }
 }
