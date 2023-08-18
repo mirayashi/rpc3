@@ -7,14 +7,16 @@
   "scripts": {
     "start": "node src/index.js",
     "start:daemon": "nodemon src/index.js",
-    "db:init": "node init/index.js"
+    "db:init": "node src/init.js"
   },
   "author": "Mirayashi",
   "license": "MIT",
   "devDependencies": {
+    "eslint": "^8.47.0",
     "nodemon": "^3.0.1"
   },
   "dependencies": {
+    "async-mutex": "^0.4.0",
     "ipfs-log": "^6.0.0",
     "promised-sqlite3": "^2.1.0",
     "sqlite3": "^5.1.6"
