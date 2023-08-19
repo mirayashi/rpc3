@@ -4,10 +4,13 @@ import fsextra from 'fs-extra'
 
 import { AsyncDatabase } from 'promised-sqlite3'
 
-import * as ipfsContainer from './ipfsContainer.js'
+import IPFSContainer from './IPFSContainer.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+
+const IDENTITY_ID = 'rest3'
+const DATA_DIR = path.resolve(__dirname, '..', 'data')
 
 async function init() {
   const dir = path.resolve(__dirname, '..', 'output')
@@ -20,8 +23,9 @@ async function init() {
 
   await db.close()
 
+  const ipfsContainer = await IPFSContainer.create(IDENTITY_ID, DATA_DIR)
   const multihash = await ipfsContainer.upload(dbFilePath)
-  console.log(`Initial database uploaded. IPFS multihash: ${multihash}`)
+  console.log(`Initial database uploaded. IPFS CID: ${multihash}`)
 }
 
 init()
