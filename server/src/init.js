@@ -12,13 +12,12 @@ async function init() {
   const db = await AsyncDatabase.open(dbFilePath)
   db.inner.on('trace', sql => console.log('[TRACE]', sql))
 
-  await db.run('CREATE TABLE IF NOT EXISTS test(a INTEGER PRIMARY KEY AUTOINCREMENT, b)')
+  await db.run('CREATE TABLE IF NOT EXISTS test(a INTEGER PRIMARY KEY AUTOINCREMENT, b, c)')
 
   await db.close()
 
   const multihash = await ipfsContainer.upload(dbFilePath)
   console.log(`Initial database uploaded. IPFS CID: ${multihash}`)
-  console.log('IPFS node is running. Press Ctrl-C to shut down...')
 }
 
 init()
