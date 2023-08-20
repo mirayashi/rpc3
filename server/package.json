@@ -12,14 +12,15 @@
   },
   "author": "Mirayashi",
   "license": "MIT",
+  "dependencies": {
+    "@helia/unixfs": "^1.4.1",
+    "fs-extra": "^11.1.1",
+    "helia": "^2.0.1",
+    "promised-sqlite3": "^2.1.0",
+    "sqlite3": "^5.1.6"
+  },
   "devDependencies": {
     "eslint": "^8.47.0",
     "nodemon": "^3.0.1"
-  },
-  "dependencies": {
-    "async-mutex": "^0.4.0",
-    "ipfs-log": "^6.0.0",
-    "promised-sqlite3": "^2.1.0",
-    "sqlite3": "^5.1.6"
   }
 }

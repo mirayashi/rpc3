@@ -1,21 +1,14 @@
 import path from 'path'
-import { fileURLToPath } from 'url'
-import fsextra from 'fs-extra'
+import debug from 'debug'
+debug.enable('libp2p,libp2p:autonat')
 
 import { AsyncDatabase } from 'promised-sqlite3'
 
 import IPFSContainer from './IPFSContainer.js'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
-
-const IDENTITY_ID = 'rest3'
-const DATA_DIR = path.resolve(__dirname, '..', 'data')
-
 async function init() {
-  const dir = path.resolve(__dirname, '..', 'output')
-  await fsextra.ensureDir(dir)
-  const dbFilePath = path.resolve(dir, 'db.sqlite')
+  const ipfsContainer = await IPFSContainer.create()
+  const dbFilePath = path.resolve(ipfsContainer.getOutputDir(), 'db.sqlite')
   const db = await AsyncDatabase.open(dbFilePath)
   db.inner.on('trace', sql => console.log('[TRACE]', sql))
 
@@ -23,9 +16,9 @@ async function init() {
 
   await db.close()
 
-  const ipfsContainer = await IPFSContainer.create(IDENTITY_ID, DATA_DIR)
   const multihash = await ipfsContainer.upload(dbFilePath)
   console.log(`Initial database uploaded. IPFS CID: ${multihash}`)
+  console.log('IPFS node is running. Press Ctrl-C to shut down...')
 }
 
 init()
