@@ -1,16 +1,16 @@
-import { time } from "@nomicfoundation/hardhat-network-helpers"
-import { ethers } from "hardhat"
-import { RESULT_1, RESULT_2 } from "../src/batchResult"
-import multihash from "../src/multihash"
-import { registerManyServers } from "../src/utils"
+import { time } from '@nomicfoundation/hardhat-network-helpers'
+import { ethers } from 'hardhat'
+import { RESULT_1, RESULT_2 } from '../src/batchResult'
+import multihash from '../src/multihash'
+import { registerManyServers } from '../src/utils'
 
 export async function deploy(globalParamsOverrides?: object) {
   // Contracts are deployed using the first signer/account by default
   const [owner, ...users] = await ethers.getSigners()
 
-  const REST3App = await ethers.getContractFactory("REST3App")
+  const RPC3 = await ethers.getContractFactory('RPC3')
   const globalParams = {
-    minStake: ethers.utils.parseEther("1"),
+    minStake: ethers.utils.parseEther('1'),
     consensusMaxDuration: ethers.BigNumber.from(60),
     consensusQuorumPercent: ethers.BigNumber.from(75),
     consensusMajorityPercent: ethers.BigNumber.from(51),
@@ -23,15 +23,15 @@ export async function deploy(globalParamsOverrides?: object) {
     maxBatchSize: ethers.BigNumber.from(6000),
     ...globalParamsOverrides
   }
-  const stateIpfsHash = multihash.parse("QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk")
-  const contract = await REST3App.deploy(globalParams, stateIpfsHash)
+  const stateIpfsHash = multihash.parse('QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk')
+  const contract = await RPC3.deploy(globalParams, stateIpfsHash)
 
   return { contract, globalParams, stateIpfsHash, owner, users }
 }
 
 export async function deployAndRegisterOwner(globalParamsOverrides?: object) {
   const fixture = await deploy(globalParamsOverrides)
-  await fixture.contract.serverRegister({ value: ethers.utils.parseEther("1") })
+  await fixture.contract.serverRegister({ value: ethers.utils.parseEther('1') })
   return fixture
 }
 
@@ -42,13 +42,13 @@ export async function deployAndRegister4Users(globalParamsOverrides?: object) {
     users: [user1, user2, user3, user4]
   } = fixture
   const usersLastSeen = []
-  await contract.connect(user1).serverRegister({ value: ethers.utils.parseEther("1") })
+  await contract.connect(user1).serverRegister({ value: ethers.utils.parseEther('1') })
   usersLastSeen.push(await time.latest())
-  await contract.connect(user2).serverRegister({ value: ethers.utils.parseEther("2") })
+  await contract.connect(user2).serverRegister({ value: ethers.utils.parseEther('2') })
   usersLastSeen.push(await time.latest())
-  await contract.connect(user3).serverRegister({ value: ethers.utils.parseEther("4") })
+  await contract.connect(user3).serverRegister({ value: ethers.utils.parseEther('4') })
   usersLastSeen.push(await time.latest())
-  await contract.connect(user4).serverRegister({ value: ethers.utils.parseEther("8") })
+  await contract.connect(user4).serverRegister({ value: ethers.utils.parseEther('8') })
   usersLastSeen.push(await time.latest())
   return { ...fixture, usersLastSeen, usersRegisteredAt: usersLastSeen.slice() }
 }
@@ -56,7 +56,7 @@ export async function deployAndRegister4Users(globalParamsOverrides?: object) {
 export async function deployAndSubmitOneRequest(globalParamsOverrides?: object) {
   const fixture = await deployAndRegister4Users(globalParamsOverrides)
   const { contract } = fixture
-  await contract.sendRequest(multihash.generate("request1"))
+  await contract.sendRequest(multihash.generate('request1'))
   return fixture
 }
 

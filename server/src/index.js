@@ -1,10 +1,12 @@
 import { ethers } from 'ethers'
 
-import abi from './rest3AppAbi.js'
-// IPFSDatabase from './IPFSDatabase.js'
+import abi from './abi.js'
+import IPFSDatabase from './IPFSDatabase.js'
+
+import { multihash } from 'rpc3-common'
 
 const start = async () => {
-  //const ipfsDb = await IPFSDatabase.create()
+  const ipfsDb = await IPFSDatabase.create()
   const contractAddr = '0x5894da463ee4791408b773489A292d67f040585a'
   const provider = new ethers.JsonRpcProvider('https://testnet.sapphire.oasis.dev', {
     name: 'sapphire-testnet',
@@ -13,8 +15,16 @@ const start = async () => {
   const wallet = new ethers.Wallet(process.env.HH_PRIVATE_KEY, provider)
 
   const contract = new ethers.Contract(contractAddr, abi, wallet)
-  const tx = await contract.serverRegister({ value: ethers.parseEther('1') })
-  console.log(await tx.wait())
+
+  if (!(await contract.amIRegistered())) {
+    const tx = await contract.serverRegister({ value: await contract.getStakeRequirement() })
+    await tx.wait()
+  }
+
+  provider.on(contract.filters.NextBatchReady(), async (log, event) => {
+    const batch = await contract.getCurrentBatch(0)
+    await ipfsDb.syncFromIPFS(multihash.stringify(batch.initialStateIpfsHash))
+  })
 }
 
 start()

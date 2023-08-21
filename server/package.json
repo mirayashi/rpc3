@@ -1,7 +1,7 @@
 {
-  "name": "rest3-server",
+  "name": "rpc3-server",
   "version": "1.0.0",
-  "description": "A server application for the rest3 project",
+  "description": "A server application for the rpc3 project",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -20,7 +20,6 @@
     "sqlite3": "^5.1.6"
   },
   "devDependencies": {
-    "eslint": "^8.47.0",
     "nodemon": "^3.0.1"
   }
 }

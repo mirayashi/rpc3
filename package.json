@@ -1,0 +1,27 @@
+{
+  "name": "rpc3",
+  "version": "1.0.0",
+  "description": "A standard for decentralized remote procedure calls leveraging IPFS and privacy-enabled blockchain",
+  "scripts": {},
+  "keywords": [
+    "rpc3",
+    "web3",
+    "decentralized",
+    "IPFS",
+    "blockhain",
+    "standard",
+    "privacy",
+    "oasis",
+    "sapphire"
+  ],
+  "author": "Mirayashi",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.47.0"
+  },
+  "workspaces": [
+    "common",
+    "sc",
+    "server"
+  ]
+}

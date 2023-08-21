@@ -14,7 +14,7 @@ import {GlobalParamsValidator} from "./GlobalParamsValidator.sol";
 import {PaginationLib, Pagination} from "./PaginationLib.sol";
 import {StakeLib} from "./StakeLib.sol";
 
-contract REST3App is Ownable, Pausable, PullPayment, ReentrancyGuard {
+contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
     using StakeLib for StakeLib.Stake;
     using ConsensusLib for Consensus;
@@ -202,6 +202,14 @@ contract REST3App is Ownable, Pausable, PullPayment, ReentrancyGuard {
     {
         _addToTreasury(_slash(msg.sender, globalParams.slashPercent));
         _unregister(msg.sender);
+    }
+
+    /**
+     * @dev Check whether the caller is registered as a server.
+     * @return bool
+     */
+    function amIRegistered() external view returns (bool) {
+        return _serverSet.contains(msg.sender);
     }
 
     /**

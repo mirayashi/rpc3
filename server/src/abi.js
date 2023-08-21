@@ -5,11 +5,6 @@ export default [
         components: [
           {
             internalType: 'uint256',
-            name: 'defaultRequestCost',
-            type: 'uint256'
-          },
-          {
-            internalType: 'uint256',
             name: 'minStake',
             type: 'uint256'
           },
@@ -25,12 +20,17 @@ export default [
           },
           {
             internalType: 'uint256',
-            name: 'consensusRatioPercent',
+            name: 'consensusMajorityPercent',
             type: 'uint256'
           },
           {
             internalType: 'uint256',
             name: 'inactivityDuration',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'ownerRoyaltiesPercent',
             type: 'uint256'
           },
           {
@@ -46,6 +46,16 @@ export default [
           {
             internalType: 'uint256',
             name: 'housekeepCleanReward',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'maxServers',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'maxBatchSize',
             type: 'uint256'
           }
         ],
@@ -76,6 +86,11 @@ export default [
   },
   {
     inputs: [],
+    name: 'BatchInProgress',
+    type: 'error'
+  },
+  {
+    inputs: [],
     name: 'ConsensusNotActive',
     type: 'error'
   },
@@ -96,7 +111,13 @@ export default [
     type: 'error'
   },
   {
-    inputs: [],
+    inputs: [
+      {
+        internalType: 'uint256',
+        name: 'expectedMinAmount',
+        type: 'uint256'
+      }
+    ],
     name: 'InsufficientStake',
     type: 'error'
   },
@@ -106,7 +127,52 @@ export default [
     type: 'error'
   },
   {
+    inputs: [
+      {
+        components: [
+          {
+            internalType: 'string',
+            name: 'field',
+            type: 'string'
+          },
+          {
+            internalType: 'string',
+            name: 'reason',
+            type: 'string'
+          }
+        ],
+        internalType: 'struct GlobalParamsValidator.Violation[]',
+        name: 'violations',
+        type: 'tuple[]'
+      }
+    ],
+    name: 'InvalidGlobalParams',
+    type: 'error'
+  },
+  {
     inputs: [],
+    name: 'InvalidRequestNonce',
+    type: 'error'
+  },
+  {
+    inputs: [
+      {
+        internalType: 'uint256',
+        name: 'maxPage',
+        type: 'uint256'
+      }
+    ],
+    name: 'MaxPageExceeded',
+    type: 'error'
+  },
+  {
+    inputs: [
+      {
+        internalType: 'uint256',
+        name: 'limit',
+        type: 'uint256'
+      }
+    ],
     name: 'MaxServersReached',
     type: 'error'
   },
@@ -134,6 +200,25 @@ export default [
     inputs: [],
     name: 'ServerNotRegistered',
     type: 'error'
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'amount',
+        type: 'uint256'
+      },
+      {
+        indexed: false,
+        internalType: 'uint256',
+        name: 'royalties',
+        type: 'uint256'
+      }
+    ],
+    name: 'AddedToTreasury',
+    type: 'event'
   },
   {
     anonymous: false,
@@ -171,6 +256,76 @@ export default [
     anonymous: false,
     inputs: [
       {
+        components: [
+          {
+            internalType: 'uint256',
+            name: 'minStake',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'consensusMaxDuration',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'consensusQuorumPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'consensusMajorityPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'inactivityDuration',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'ownerRoyaltiesPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'slashPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'housekeepBaseReward',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'housekeepCleanReward',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'maxServers',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'maxBatchSize',
+            type: 'uint256'
+          }
+        ],
+        indexed: false,
+        internalType: 'struct GlobalParams',
+        name: 'newValue',
+        type: 'tuple'
+      }
+    ],
+    name: 'GlobalParamsUpdated',
+    type: 'event'
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
         indexed: false,
         internalType: 'uint256',
         name: 'cleanCount',
@@ -188,8 +343,47 @@ export default [
   },
   {
     anonymous: false,
-    inputs: [],
+    inputs: [
+      {
+        indexed: true,
+        internalType: 'uint256',
+        name: 'batchNonce',
+        type: 'uint256'
+      }
+    ],
     name: 'NextBatchReady',
+    type: 'event'
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: true,
+        internalType: 'address',
+        name: 'previousOwner',
+        type: 'address'
+      },
+      {
+        indexed: true,
+        internalType: 'address',
+        name: 'newOwner',
+        type: 'address'
+      }
+    ],
+    name: 'OwnershipTransferred',
+    type: 'event'
+  },
+  {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: 'address',
+        name: 'account',
+        type: 'address'
+      }
+    ],
+    name: 'Paused',
     type: 'event'
   },
   {
@@ -232,8 +426,34 @@ export default [
     type: 'event'
   },
   {
+    anonymous: false,
+    inputs: [
+      {
+        indexed: false,
+        internalType: 'address',
+        name: 'account',
+        type: 'address'
+      }
+    ],
+    name: 'Unpaused',
+    type: 'event'
+  },
+  {
     inputs: [],
-    name: 'applyLastContribution',
+    name: 'amIRegistered',
+    outputs: [
+      {
+        internalType: 'bool',
+        name: '',
+        type: 'bool'
+      }
+    ],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'applyPendingContribution',
     outputs: [
       {
         internalType: 'bool',
@@ -272,7 +492,13 @@ export default [
     type: 'function'
   },
   {
-    inputs: [],
+    inputs: [
+      {
+        internalType: 'uint256',
+        name: 'page',
+        type: 'uint256'
+      }
+    ],
     name: 'getCurrentBatch',
     outputs: [
       {
@@ -280,6 +506,16 @@ export default [
           {
             internalType: 'uint256',
             name: 'nonce',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'page',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'maxPage',
             type: 'uint256'
           },
           {
@@ -367,23 +603,10 @@ export default [
     type: 'function'
   },
   {
-    inputs: [],
-    name: 'getNextHousekeepTimestamp',
-    outputs: [
-      {
-        internalType: 'uint256',
-        name: '',
-        type: 'uint256'
-      }
-    ],
-    stateMutability: 'view',
-    type: 'function'
-  },
-  {
     inputs: [
       {
         internalType: 'uint256',
-        name: 'nonce',
+        name: 'requestNonce',
         type: 'uint256'
       }
     ],
@@ -408,7 +631,7 @@ export default [
       },
       {
         internalType: 'uint256',
-        name: 'position',
+        name: '',
         type: 'uint256'
       }
     ],
@@ -487,11 +710,6 @@ export default [
     outputs: [
       {
         internalType: 'uint256',
-        name: 'defaultRequestCost',
-        type: 'uint256'
-      },
-      {
-        internalType: 'uint256',
         name: 'minStake',
         type: 'uint256'
       },
@@ -507,12 +725,17 @@ export default [
       },
       {
         internalType: 'uint256',
-        name: 'consensusRatioPercent',
+        name: 'consensusMajorityPercent',
         type: 'uint256'
       },
       {
         internalType: 'uint256',
         name: 'inactivityDuration',
+        type: 'uint256'
+      },
+      {
+        internalType: 'uint256',
+        name: 'ownerRoyaltiesPercent',
         type: 'uint256'
       },
       {
@@ -529,6 +752,16 @@ export default [
         internalType: 'uint256',
         name: 'housekeepCleanReward',
         type: 'uint256'
+      },
+      {
+        internalType: 'uint256',
+        name: 'maxServers',
+        type: 'uint256'
+      },
+      {
+        internalType: 'uint256',
+        name: 'maxBatchSize',
+        type: 'uint256'
       }
     ],
     stateMutability: 'view',
@@ -543,6 +776,65 @@ export default [
       }
     ],
     name: 'housekeepInactive',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'owner',
+    outputs: [
+      {
+        internalType: 'address',
+        name: '',
+        type: 'address'
+      }
+    ],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'pause',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'paused',
+    outputs: [
+      {
+        internalType: 'bool',
+        name: '',
+        type: 'bool'
+      }
+    ],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [
+      {
+        internalType: 'address',
+        name: 'dest',
+        type: 'address'
+      }
+    ],
+    name: 'payments',
+    outputs: [
+      {
+        internalType: 'uint256',
+        name: '',
+        type: 'uint256'
+      }
+    ],
+    stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'renounceOwnership',
     outputs: [],
     stateMutability: 'nonpayable',
     type: 'function'
@@ -582,6 +874,76 @@ export default [
   {
     inputs: [],
     name: 'serverUnregister',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function'
+  },
+  {
+    inputs: [
+      {
+        components: [
+          {
+            internalType: 'uint256',
+            name: 'minStake',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'consensusMaxDuration',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'consensusQuorumPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'consensusMajorityPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'inactivityDuration',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'ownerRoyaltiesPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'slashPercent',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'housekeepBaseReward',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'housekeepCleanReward',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'maxServers',
+            type: 'uint256'
+          },
+          {
+            internalType: 'uint256',
+            name: 'maxBatchSize',
+            type: 'uint256'
+          }
+        ],
+        internalType: 'struct GlobalParams',
+        name: 'globalParams_',
+        type: 'tuple'
+      }
+    ],
+    name: 'setGlobalParams',
     outputs: [],
     stateMutability: 'nonpayable',
     type: 'function'
@@ -648,16 +1010,16 @@ export default [
     type: 'function'
   },
   {
-    inputs: [],
-    name: 'totalContributions',
-    outputs: [
+    inputs: [
       {
-        internalType: 'uint256',
-        name: '',
-        type: 'uint256'
+        internalType: 'address',
+        name: 'newOwner',
+        type: 'address'
       }
     ],
-    stateMutability: 'view',
+    name: 'transferOwnership',
+    outputs: [],
+    stateMutability: 'nonpayable',
     type: 'function'
   },
   {
@@ -671,6 +1033,26 @@ export default [
       }
     ],
     stateMutability: 'view',
+    type: 'function'
+  },
+  {
+    inputs: [],
+    name: 'unpause',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function'
+  },
+  {
+    inputs: [
+      {
+        internalType: 'address payable',
+        name: 'payee',
+        type: 'address'
+      }
+    ],
+    name: 'withdrawPayments',
+    outputs: [],
+    stateMutability: 'nonpayable',
     type: 'function'
   },
   {

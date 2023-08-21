@@ -18,6 +18,15 @@
     "prettier.useTabs": false,
     "prettier.printWidth": 120,
     "prettier.trailingComma": "none",
-    "prettier.singleQuote": true
+    "prettier.singleQuote": true,
+    "solidity.defaultCompiler": "localNodeModule",
+    "solidity.enabledAsYouTypeCompilationErrorCheck": true,
+    "[solidity]": {
+      "editor.defaultFormatter": "JuanBlanco.solidity",
+      "editor.indentSize": 4,
+      "editor.tabSize": 4,
+      "editor.wordWrapColumn": 80,
+      "rewrap.autoWrap.enabled": false
+    }
   }
 }

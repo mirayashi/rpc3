@@ -17,7 +17,7 @@ export default class IPFSDatabase {
     this.dbFile = dbFile
   }
 
-  static async create(dbFile = path.resolve(os.tmpdir(), 'rest3-db', 'db.sqlite')) {
+  static async create(dbFile = path.resolve(os.tmpdir(), 'rpc3-db', 'db.sqlite')) {
     await fsextra.ensureDir(path.dirname(dbFile))
     const client = create()
     return new IPFSDatabase(client, dbFile)

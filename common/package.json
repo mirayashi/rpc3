@@ -1,0 +1,16 @@
+{
+  "name": "rpc3-common",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Common library for all components of the rpc3 project",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "common",
+    "rpc3"
+  ],
+  "author": "Mirayashi",
+  "license": "MIT"
+}
