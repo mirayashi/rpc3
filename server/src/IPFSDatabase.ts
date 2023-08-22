@@ -3,16 +3,14 @@ import fsextra from 'fs-extra'
 import path from 'path'
 import os from 'os'
 
-import { create } from 'kubo-rpc-client'
+import { create, IPFSHTTPClient } from 'kubo-rpc-client'
 import { AsyncDatabase } from 'promised-sqlite3'
 
 export default class IPFSDatabase {
-  /**
-   * @typedef {import('kubo-rpc-client/dist/src').IPFSHTTPClient} IPFSHTTPClient
-   * @param {IPFSHTTPClient} client
-   * @param {*} dbFile
-   */
-  constructor(client, dbFile) {
+  private client: IPFSHTTPClient
+  private dbFile: string
+
+  constructor(client: IPFSHTTPClient, dbFile: string) {
     this.client = client
     this.dbFile = dbFile
   }
@@ -39,7 +37,7 @@ export default class IPFSDatabase {
     return cid
   }
 
-  async syncFromIPFS(multihash) {
+  async syncFromIPFS(multihash: string) {
     await fs.promises.writeFile(this.dbFile, this.client.cat(multihash))
   }
 }

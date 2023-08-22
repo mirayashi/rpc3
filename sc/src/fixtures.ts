@@ -1,7 +1,7 @@
 import { time } from '@nomicfoundation/hardhat-network-helpers'
 import { ethers } from 'hardhat'
 import { RESULT_1, RESULT_2 } from '../src/batchResult'
-import multihash from '../src/multihash'
+import { multihash } from 'rpc3-common'
 import { registerManyServers } from '../src/utils'
 
 export async function deploy(globalParamsOverrides?: object) {

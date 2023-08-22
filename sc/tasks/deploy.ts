@@ -1,6 +1,6 @@
 import { task } from 'hardhat/config'
 import '@nomicfoundation/hardhat-toolbox'
-import multihash from '../src/multihash'
+import { multihash } from 'rpc3-common'
 import '@oasisprotocol/sapphire-hardhat'
 
 const globalParamsDefault = {
@@ -60,7 +60,7 @@ task('deploy', 'Deploy the contract')
         .filter(([k, v]) => Object.keys(globalParamsDefault).includes(k) && typeof v !== 'undefined')
         .reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {})
     }
-    const stateIpfsHash = multihash.generate(args.stateIpfsHash)
+    const stateIpfsHash = multihash.parse(args.stateIpfsHash)
     const contract = await RPC3.deploy(globalParams, stateIpfsHash)
 
     await contract.deployed()

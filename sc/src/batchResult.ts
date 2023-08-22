@@ -1,4 +1,4 @@
-import multihash, { Multihash } from "./multihash"
+import { multihash, Multihash } from 'rpc3-common'
 
 interface Result {
   finalStateIpfsHash: Multihash
@@ -12,6 +12,6 @@ function generate(id: string): Result {
   }
 }
 
-export const RESULT_1 = generate("1")
-export const RESULT_2 = generate("2")
-export const RESULT_3 = generate("3")
+export const RESULT_1 = generate('1')
+export const RESULT_2 = generate('2')
+export const RESULT_3 = generate('3')

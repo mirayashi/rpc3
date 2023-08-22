@@ -1,14 +1,13 @@
 {
   "name": "rpc3-sc",
   "description": "Smart contracts for the rpc3 project",
+  "main": "src/index.js",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^2.0.2",
     "@oasisprotocol/sapphire-contracts": "^0.2.4",
     "@oasisprotocol/sapphire-hardhat": "~2.16.1",
     "@openzeppelin/contracts": "^4.9.2",
     "@types/lodash": "^4.14.197",
-    "@typescript-eslint/eslint-plugin": "^6.3.0",
-    "@typescript-eslint/parser": "^6.3.0",
     "bs58": "^5.0.0",
     "cross-env": "^7.0.3",
     "ethers": "^5.5.3",
