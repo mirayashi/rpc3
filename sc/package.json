@@ -1,7 +1,6 @@
 {
   "name": "rpc3-sc",
   "description": "Smart contracts for the rpc3 project",
-  "main": "src/index.js",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^2.0.2",
     "@oasisprotocol/sapphire-contracts": "^0.2.4",

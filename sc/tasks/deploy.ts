@@ -63,7 +63,7 @@ task('deploy', 'Deploy the contract')
     const stateIpfsHash = multihash.parse(args.stateIpfsHash)
     const contract = await RPC3.deploy(globalParams, stateIpfsHash)
 
-    await contract.deployed()
+    const { address } = await contract.deployed()
 
-    console.log(`RPC3 deployed to ${contract.address}`)
+    console.log(`RPC3 deployed to ${address}`)
   })

@@ -1,18 +1,13 @@
-import IPFSDatabase from './IPFSDatabase.js'
+import IPFSStorage from './IPFSStorage.js'
 
-async function init() {
-  const ipfsDb = await IPFSDatabase.create()
-  await ipfsDb.clean()
-  const db = await ipfsDb.open()
-  db.inner.on('trace', sql => console.log('[TRACE]', sql))
+const ipfs = await IPFSStorage.create()
+await ipfs.dropDatabase()
+const db = await ipfs.openDatabase()
+db.inner.on('trace', sql => console.log('[TRACE]', sql))
 
-  await db.run('CREATE TABLE test(a, b)')
-  await db.run('INSERT INTO test VALUES (1, 2)')
+await db.run('CREATE TABLE counter(addr PRIMARY KEY, count)')
 
-  await db.close()
+await db.close()
 
-  const multihash = await ipfsDb.persistToIPFS()
-  console.log(`Initial database added to IPFS. IPFS CID: ${multihash}`)
-}
-
-init()
+const multihash = await ipfs.persistDatabase()
+console.log(`Initial database added to IPFS. IPFS CID: ${multihash}`)
