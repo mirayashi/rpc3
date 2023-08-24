@@ -2,7 +2,7 @@ import { ethers } from 'ethers'
 
 import { multihash, utils } from 'rpc3-common'
 import IPFSStorage from './IPFSStorage.js'
-import { RPC3__factory } from './generated/RPC3__factory.js'
+import { RPC3Factory } from 'rpc3-common'
 
 const ipfs = await IPFSStorage.create()
 const contractAddr = '0x9f63FED349F243d565cCBC53957f204bb6Fb6fa4'
@@ -15,7 +15,7 @@ if (!process.env.HH_PRIVATE_KEY) {
 }
 const wallet = new ethers.Wallet(process.env.HH_PRIVATE_KEY, provider)
 
-const contract = RPC3__factory.connect(contractAddr, wallet)
+const contract = RPC3Factory.connect(contractAddr, wallet)
 
 if (!(await contract.amIRegistered())) {
   const tx = await contract.serverRegister({ value: await contract.getStakeRequirement() })

@@ -2,8 +2,8 @@
   "name": "rpc3-server",
   "version": "1.0.0",
   "description": "A server application for the rpc3 project",
-  "type": "module",
   "main": "src/index.ts",
+  "type": "module",
   "scripts": {
     "eslint": "eslint --ext .ts \"src/**\"",
     "start": "ts-node-esm src/index.ts",
@@ -14,8 +14,7 @@
   "dependencies": {
     "fs-extra": "^11.1.1",
     "kubo-rpc-client": "^3.0.1",
-    "promised-sqlite3": "^2.1.0",
-    "sqlite3": "^5.1.6"
+    "promised-sqlite3": "^2.1.0"
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.1",

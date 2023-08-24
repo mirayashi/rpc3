@@ -2,7 +2,9 @@
   "name": "rpc3",
   "version": "1.0.0",
   "description": "A standard for decentralized remote procedure calls leveraging IPFS and privacy-enabled blockchain",
-  "scripts": {},
+  "scripts": {
+    "postinstall": "npm -w sc run clean && npm -w sc run compile && npm -w common run copy-generated"
+  },
   "keywords": [
     "rpc3",
     "web3",
@@ -17,13 +19,19 @@
   "author": "Mirayashi",
   "license": "MIT",
   "devDependencies": {
-    "eslint": "^8.47.0",
     "@typescript-eslint/eslint-plugin": "^6.3.0",
-    "@typescript-eslint/parser": "^6.3.0"
+    "@typescript-eslint/parser": "^6.3.0",
+    "copyfiles": "^2.4.1",
+    "eslint": "^8.47.0",
+    "rimraf": "^5.0.1"
   },
   "workspaces": [
     "common",
     "sc",
-    "server"
-  ]
+    "server",
+    "client"
+  ],
+  "dependencies": {
+    "ethers": "^5.7.2"
+  }
 }

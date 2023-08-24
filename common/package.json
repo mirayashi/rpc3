@@ -2,13 +2,9 @@
   "name": "rpc3-common",
   "version": "1.0.0",
   "description": "Common library for all components of the rpc3 project",
-  "type": "module",
-  "exports": {
-    "types": "./src/index.ts",
-    "import": "./src/index.ts"
-  },
+  "main": "./src/index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "copy-generated": "rimraf ./generated && copyfiles -EVu 3 ../sc/typechain-types/common.ts ../sc/typechain-types/contracts/RPC3.ts ../sc/typechain-types/factories/contracts/RPC3__factory.ts generated"
   },
   "keywords": [
     "common",

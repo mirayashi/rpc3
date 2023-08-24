@@ -3,9 +3,9 @@ import fsextra from 'fs-extra'
 import path from 'path'
 import os from 'os'
 
+import { AsyncDatabase } from 'promised-sqlite3'
 import { create } from 'kubo-rpc-client'
 import type { IPFSHTTPClient } from 'kubo-rpc-client'
-import { AsyncDatabase } from 'promised-sqlite3'
 
 export default class IPFSStorage {
   private _client: IPFSHTTPClient
