@@ -1,31 +1,34 @@
 import { ethers } from 'ethers'
+import * as sapphire from '@oasisprotocol/sapphire-paratime'
 
-import { multihash, utils } from 'rpc3-common'
+import common from 'rpc3-common'
 import IPFSStorage from './IPFSStorage.js'
-import { RPC3Factory } from 'rpc3-common'
+
+const { RPC3Factory, multihash, utils } = common
 
 const ipfs = await IPFSStorage.create()
-const contractAddr = '0x9f63FED349F243d565cCBC53957f204bb6Fb6fa4'
-const provider = new ethers.providers.JsonRpcProvider('https://testnet.sapphire.oasis.dev', {
-  name: 'sapphire-testnet',
-  chainId: 0x5aff
-})
+const contractAddr = '0x21C6aD34FD59Ccf8f4Fe76D31A866D421B78E854'
+const provider = ethers.getDefaultProvider(sapphire.NETWORKS.testnet.defaultGateway)
 if (!process.env.HH_PRIVATE_KEY) {
   throw new Error('Missing env HH_PRIVATE_KEY')
 }
-const wallet = new ethers.Wallet(process.env.HH_PRIVATE_KEY, provider)
+const wallet = sapphire.wrap(new ethers.Wallet(process.env.HH_PRIVATE_KEY, provider))
 
 const contract = RPC3Factory.connect(contractAddr, wallet)
 
-if (!(await contract.amIRegistered())) {
+const registered = await contract.amIRegistered()
+if (!registered) {
   const tx = await contract.serverRegister({ value: await contract.getStakeRequirement() })
-  await tx.wait()
+  console.log('register tx', await tx.wait())
 }
 
-provider.on(contract.filters.NextBatchReady(), async (log, event) => {
-  console.log('NextBatchReady log', log)
-  console.log('NextBatchReady event', event)
+async function processBatch() {
   const batch = await contract.getCurrentBatch(0)
+  if (Date.now() / 1000 > batch.expiresAt.toNumber()) {
+    const tx = await contract.skipBatchIfConsensusExpired()
+    console.log('skip batch tx', await tx.wait())
+    return
+  }
   await ipfs.restoreDatabase(multihash.stringify(batch.initialStateIpfsHash))
   const db = await ipfs.openDatabase()
   const responses: string[] = []
@@ -43,6 +46,19 @@ provider.on(contract.filters.NextBatchReady(), async (log, event) => {
   }
   await db.close()
   const finalStateIpfsHash = multihash.parse((await ipfs.persistDatabase()).toString())
-  const responseIpfsHash = multihash.parse((await ipfs.client.add(JSON.stringify(responses))).toString())
-  await contract.submitBatchResult(batch.nonce, { finalStateIpfsHash, responseIpfsHash })
+  const responseIpfsHash = multihash.parse((await ipfs.client.add(JSON.stringify(responses))).cid.toString())
+  const tx = await contract.submitBatchResult(batch.nonce, { finalStateIpfsHash, responseIpfsHash })
+  console.log('submit batch result tx', await tx.wait())
+}
+
+const handleBatchError = (err: unknown) => console.error('Failed to process batch', err)
+
+await processBatch().catch(handleBatchError)
+
+provider.on(contract.filters.NextBatchReady(), (log, event) => {
+  console.log('NextBatchReady log', log)
+  console.log('NextBatchReady event', event)
+  processBatch().catch(handleBatchError)
 })
+
+console.log('Server started')

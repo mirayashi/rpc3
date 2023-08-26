@@ -3,7 +3,7 @@ module.exports = {
     node: true,
     es2022: true
   },
-  extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended'],
+  extends: ['eslint:recommended'],
   overrides: [
     {
       env: {
@@ -13,6 +13,10 @@ module.exports = {
       parserOptions: {
         sourceType: 'script'
       }
+    },
+    {
+      extends: ['plugin:@typescript-eslint/recommended'],
+      files: ['**/*.ts']
     }
   ],
   parser: '@typescript-eslint/parser',

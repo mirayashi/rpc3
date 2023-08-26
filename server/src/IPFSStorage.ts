@@ -33,7 +33,9 @@ export default class IPFSStorage {
   }
 
   async openDatabase() {
-    return AsyncDatabase.open(this.dbFile)
+    const db = await AsyncDatabase.open(this.dbFile)
+    db.inner.on('trace', sql => console.log('[TRACE]', sql))
+    return db
   }
 
   async persistDatabase() {

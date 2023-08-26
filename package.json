@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "description": "A standard for decentralized remote procedure calls leveraging IPFS and privacy-enabled blockchain",
   "scripts": {
-    "postinstall": "npm -w sc run clean && npm -w sc run compile && npm -w common run copy-generated"
+    "postinstall": "npm -w sc run clean:typechain && npm run sc:compile && npm -w common run build",
+    "clean:all": "npm -w sc run clean && npm -w common run clean",
+    "sc:compile": "cross-env HH_EXCLUDE_TASKS=1 npm -w sc run compile"
   },
   "keywords": [
     "rpc3",
@@ -22,6 +24,7 @@
     "@typescript-eslint/eslint-plugin": "^6.3.0",
     "@typescript-eslint/parser": "^6.3.0",
     "copyfiles": "^2.4.1",
+    "cross-env": "^7.0.3",
     "eslint": "^8.47.0",
     "rimraf": "^5.0.1"
   },
@@ -32,6 +35,7 @@
     "client"
   ],
   "dependencies": {
+    "@oasisprotocol/sapphire-paratime": "^1.1.1",
     "ethers": "^5.7.2"
   }
 }

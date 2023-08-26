@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "eslint": "eslint --ext .ts \"src/**\"",
-    "start": "ts-node src/index.ts"
+    "start": "ts-node-esm src/index.ts"
   },
   "author": "Mirayashi",
   "license": "MIT",

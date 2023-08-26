@@ -19,6 +19,7 @@
     "deploy": "hardhat --network sapphire_testnet deploy",
     "test": "cross-env REPORT_GAS=true hardhat test",
     "test:perf": "cross-env REPORT_GAS=true PERF=true hardhat test",
-    "clean": "hardhat clean"
+    "clean": "hardhat clean",
+    "clean:typechain": "rimraf ./typechain-types"
   }
 }

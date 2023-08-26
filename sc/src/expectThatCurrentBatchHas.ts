@@ -1,7 +1,7 @@
 import { expect } from 'chai'
 import { Contract } from 'ethers'
-import { RequestStruct } from '../typechain-types/RPC3'
-import { Multihash } from './multihash'
+import { RequestStruct } from '../typechain-types/contracts/RPC3'
+import { Multihash } from 'rpc3-common'
 
 async function expectThatCurrentBatchHas(
   contract: Contract,
