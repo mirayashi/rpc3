@@ -17,8 +17,13 @@ if (!registered) {
   console.log('register tx', await tx.wait())
 }
 
-async function processBatch() {
-  const batch = await contract.getCurrentBatch(0)
+async function processBatch(blockNumber?: ethers.providers.BlockTag) {
+  const batch = await contract
+    .getCurrentBatch(0, { blockTag: blockNumber })
+    .catch(err => console.error('processBatch(): could not get batch info', err))
+  if (batch === undefined) {
+    return
+  }
   if (Date.now() / 1000 > batch.expiresAt.toNumber()) {
     const tx = await contract.skipBatchIfConsensusExpired()
     console.log('skip batch tx', await tx.wait())
@@ -35,7 +40,7 @@ async function processBatch() {
       author,
       payload.count
     )
-    const newCount: number = await db.get('SELECT count FROM counter WHERE addr = ?', author)
+    const { count: newCount }: { count: number } = await db.get('SELECT count FROM counter WHERE addr = ?', author)
     const addResult = await ipfs.client.add(JSON.stringify({ status: 'ok', newCount }))
     responses.push(addResult.cid.toString())
   }
@@ -50,10 +55,9 @@ const handleBatchError = (err: unknown) => console.error('Failed to process batc
 
 await processBatch().catch(handleBatchError)
 
-config.ethersProvider.on(contract.filters.NextBatchReady(), (log, event) => {
+config.ethersProvider.on(contract.filters.NextBatchReady(), (log: ethers.providers.Log) => {
   console.log('NextBatchReady log', log)
-  console.log('NextBatchReady event', event)
-  processBatch().catch(handleBatchError)
+  config.ethersProvider.once('block', data => processBatch(data.blockNumber).catch(handleBatchError))
 })
 
 console.log('Server started')

@@ -83,7 +83,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     event GlobalParamsUpdated(GlobalParams newValue);
     event HousekeepSuccess(uint cleanCount, uint nextHousekeepTimestamp);
     event NextBatchReady(uint indexed batchNonce);
-    event RequestSubmitted(uint indexed requestNonce);
+    event RequestSubmitted(uint indexed requestNonce, uint batchNonce);
     event ServerRegistered(address indexed addr);
     event ServerUnregistered(address indexed addr);
 
@@ -551,11 +551,13 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         Request storage req = _requestQueue.queue[requestNonce];
         req.ipfsHash = requestIpfsHash;
         req.author = msg.sender;
-        _calculateAndSaveBatchCoordinates(requestNonce);
-        emit RequestSubmitted(requestNonce);
+        uint batchNonce = _calculateAndSaveBatchCoordinates(requestNonce);
+        emit RequestSubmitted(requestNonce, batchNonce);
     }
 
-    function _calculateAndSaveBatchCoordinates(uint nonce) internal {
+    function _calculateAndSaveBatchCoordinates(
+        uint nonce
+    ) internal returns (uint) {
         uint queueHead = _requestQueue.head;
         uint maxBatchSize = globalParams.maxBatchSize;
         BatchCoordinates storage coords = _mapRequestNonceToBatchCoordinates[
@@ -563,11 +565,12 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         ];
         unchecked {
             uint positionInQueue = nonce - queueHead;
-            coords.batchNonce =
-                _batch.nonce +
+            uint batchNonce = _batch.nonce +
                 (positionInQueue / maxBatchSize) +
                 1;
+            coords.batchNonce = batchNonce;
             coords.position = positionInQueue % maxBatchSize;
+            return batchNonce;
         }
     }
 

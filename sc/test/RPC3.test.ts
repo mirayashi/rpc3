@@ -662,21 +662,21 @@ describe('RPC3', () => {
       // Will be included in batch 1
       await expect(contract.sendRequest(multihash.generate('1')))
         .to.emit(contract, 'RequestSubmitted')
-        .withArgs(0)
+        .withArgs(0, 1)
       // Will be included in batch 2
       await expect(contract.sendRequest(multihash.generate('2')))
         .to.emit(contract, 'RequestSubmitted')
-        .withArgs(1)
+        .withArgs(1, 2)
       await expect(contract.sendRequest(multihash.generate('3')))
         .to.emit(contract, 'RequestSubmitted')
-        .withArgs(2)
+        .withArgs(2, 2)
       await expect(contract.sendRequest(multihash.generate('4')))
         .to.emit(contract, 'RequestSubmitted')
-        .withArgs(3)
+        .withArgs(3, 2)
       // Will be included in batch 3
       await expect(contract.sendRequest(multihash.generate('5')))
         .to.emit(contract, 'RequestSubmitted')
-        .withArgs(4)
+        .withArgs(4, 3)
 
       // Consensus batch 1
       await contract.connect(user1).submitBatchResult(1, RESULT_1)
