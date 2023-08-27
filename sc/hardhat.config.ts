@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { HardhatUserConfig } from 'hardhat/config'
 import '@oasisprotocol/sapphire-hardhat'
 import '@nomicfoundation/hardhat-toolbox'

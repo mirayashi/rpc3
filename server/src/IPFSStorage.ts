@@ -4,14 +4,13 @@ import path from 'path'
 import os from 'os'
 
 import { AsyncDatabase } from 'promised-sqlite3'
-import { create } from 'kubo-rpc-client'
-import type { IPFSHTTPClient } from 'kubo-rpc-client'
+import { create as createIpfsRpcClient, type IPFSHTTPClient } from 'kubo-rpc-client'
 
 export default class IPFSStorage {
   private _client: IPFSHTTPClient
   private dbFile: string
 
-  constructor(client: IPFSHTTPClient, dbFile: string) {
+  private constructor(client: IPFSHTTPClient, dbFile: string) {
     this._client = client
     this.dbFile = dbFile
   }
@@ -20,9 +19,9 @@ export default class IPFSStorage {
     return this._client
   }
 
-  static async create(dbFile = path.resolve(os.tmpdir(), 'rpc3-db', 'db.sqlite')) {
+  static async create(ipfsRpcUrl: string, dbFile = path.resolve(os.tmpdir(), 'rpc3-db', 'db.sqlite')) {
     await fsextra.ensureDir(path.dirname(dbFile))
-    const client = create()
+    const client = createIpfsRpcClient({ url: ipfsRpcUrl })
     return new IPFSStorage(client, dbFile)
   }
 

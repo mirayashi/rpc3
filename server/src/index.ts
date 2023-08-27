@@ -1,20 +1,15 @@
 import { ethers } from 'ethers'
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
 
+import { config } from '../app.config.js'
 import common from 'rpc3-common'
+const { RPC3Factory, multihash, utils } = common
 import IPFSStorage from './IPFSStorage.js'
 
-const { RPC3Factory, multihash, utils } = common
+const ipfs = await IPFSStorage.create(config.ipfsRpcUrl)
+const wallet = sapphire.wrap(new ethers.Wallet(config.walletPrivateKey, config.ethersProvider))
 
-const ipfs = await IPFSStorage.create()
-const contractAddr = '0x21C6aD34FD59Ccf8f4Fe76D31A866D421B78E854'
-const provider = ethers.getDefaultProvider(sapphire.NETWORKS.testnet.defaultGateway)
-if (!process.env.HH_PRIVATE_KEY) {
-  throw new Error('Missing env HH_PRIVATE_KEY')
-}
-const wallet = sapphire.wrap(new ethers.Wallet(process.env.HH_PRIVATE_KEY, provider))
-
-const contract = RPC3Factory.connect(contractAddr, wallet)
+const contract = RPC3Factory.connect(config.contractAddress, wallet)
 
 const registered = await contract.amIRegistered()
 if (!registered) {
@@ -55,7 +50,7 @@ const handleBatchError = (err: unknown) => console.error('Failed to process batc
 
 await processBatch().catch(handleBatchError)
 
-provider.on(contract.filters.NextBatchReady(), (log, event) => {
+config.ethersProvider.on(contract.filters.NextBatchReady(), (log, event) => {
   console.log('NextBatchReady log', log)
   console.log('NextBatchReady event', event)
   processBatch().catch(handleBatchError)
