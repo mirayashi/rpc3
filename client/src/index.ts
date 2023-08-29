@@ -6,8 +6,7 @@ import { multihash, RPC3Factory, utils } from 'rpc3-common'
 import { config } from '../app.config.js'
 
 const ipfs = createIpfsRpcClient({ url: config.ipfsRpcUrl })
-const rawWallet = new ethers.Wallet(config.walletPrivateKey, config.ethersProvider)
-const wallet = sapphire.wrap(rawWallet)
+const wallet = sapphire.wrap(new ethers.Wallet(config.walletPrivateKey, config.ethersProvider))
 
 const contract = RPC3Factory.connect(config.contractAddress, wallet)
 
@@ -18,10 +17,12 @@ const pendingRequests = new Map<bigint, Array<bigint>>()
 
 contract.on('RequestSubmitted', (requestNonce: ethers.BigNumber, batchNonce: ethers.BigNumber) => {
   console.log('Submitted request %d in batch %d', requestNonce, batchNonce)
-  if (!pendingRequests.has(batchNonce.toBigInt())) {
-    pendingRequests.set(batchNonce.toBigInt(), [])
+  let requests = pendingRequests.get(batchNonce.toBigInt())
+  if (!requests) {
+    requests = []
+    pendingRequests.set(batchNonce.toBigInt(), requests)
   }
-  pendingRequests.get(batchNonce.toBigInt())?.push(requestNonce.toBigInt())
+  requests.push(requestNonce.toBigInt())
 })
 
 contract.on('BatchCompleted', async (batchNonce: ethers.BigNumber) => {

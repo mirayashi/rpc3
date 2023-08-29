@@ -1,3 +1,5 @@
+import { ethers } from 'ethers'
+
 export async function asyncIterableToString(input: AsyncIterable<Uint8Array>) {
   const decoder = new TextDecoder('utf8')
   let result = ''
@@ -5,4 +7,8 @@ export async function asyncIterableToString(input: AsyncIterable<Uint8Array>) {
     result += decoder.decode(buf, { stream: true })
   }
   return result + decoder.decode()
+}
+
+export async function nextBlock(provider: ethers.providers.Provider) {
+  return new Promise(resolve => provider.once('block', resolve))
 }

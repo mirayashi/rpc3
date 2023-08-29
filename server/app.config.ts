@@ -1,6 +1,6 @@
 import 'dotenv/config'
 
-import common from 'rpc3-common'
-const { createBaseConfig } = common
+import { type BaseConfig, createBaseConfig } from 'rpc3-common'
 
-export const config = createBaseConfig()
+export type AppConfig = BaseConfig
+export const config: AppConfig = createBaseConfig()

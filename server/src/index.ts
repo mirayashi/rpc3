@@ -1,63 +1,16 @@
-import { ethers } from 'ethers'
-import * as sapphire from '@oasisprotocol/sapphire-paratime'
-
+import { utils } from 'rpc3-common'
 import { config } from '../app.config.js'
-import common from 'rpc3-common'
-const { RPC3Factory, multihash, utils } = common
-import IPFSStorage from './IPFSStorage.js'
+import RPC3Server from './RPC3Server.js'
+import { onRequest } from './RequestProcessor.js'
 
-const ipfs = await IPFSStorage.create(config.ipfsRpcUrl)
-const wallet = sapphire.wrap(new ethers.Wallet(config.walletPrivateKey, config.ethersProvider))
+const server = await RPC3Server.create(config)
+await server.ensureIsRegistered()
 
-const contract = RPC3Factory.connect(config.contractAddress, wallet)
-
-const registered = await contract.amIRegistered()
-if (!registered) {
-  const tx = await contract.serverRegister({ value: await contract.getStakeRequirement() })
-  console.log('register tx', await tx.wait())
-}
-
-async function processBatch(blockNumber?: ethers.providers.BlockTag) {
-  const batch = await contract
-    .getCurrentBatch(0, { blockTag: blockNumber })
-    .catch(err => console.error('processBatch(): could not get batch info', err))
-  if (batch === undefined) {
-    return
-  }
-  if (Date.now() / 1000 > batch.expiresAt.toNumber()) {
-    const tx = await contract.skipBatchIfConsensusExpired()
-    console.log('skip batch tx', await tx.wait())
-    return
-  }
-  await ipfs.restoreDatabase(multihash.stringify(batch.initialStateIpfsHash))
-  const db = await ipfs.openDatabase()
-  const responses: string[] = []
-  for (const { author, ipfsHash } of batch.requests) {
-    const cid = multihash.stringify(ipfsHash)
-    const payload = JSON.parse(await utils.asyncIterableToString(ipfs.client.cat(cid)))
-    await db.run(
-      'INSERT INTO counter(addr, count) VALUES (?, ?) ON CONFLICT(addr) DO UPDATE SET count = count + excluded.count',
-      author,
-      payload.count
-    )
-    const { count: newCount }: { count: number } = await db.get('SELECT count FROM counter WHERE addr = ?', author)
-    const addResult = await ipfs.client.add(JSON.stringify({ status: 'ok', newCount }))
-    responses.push(addResult.cid.toString())
-  }
-  await db.close()
-  const finalStateIpfsHash = multihash.parse((await ipfs.persistDatabase()).toString())
-  const responseIpfsHash = multihash.parse((await ipfs.client.add(JSON.stringify(responses))).cid.toString())
-  const tx = await contract.submitBatchResult(batch.nonce, { finalStateIpfsHash, responseIpfsHash })
-  console.log('submit batch result tx', await tx.wait())
-}
-
-const handleBatchError = (err: unknown) => console.error('Failed to process batch', err)
-
-await processBatch().catch(handleBatchError)
-
-config.ethersProvider.on(contract.filters.NextBatchReady(), (log: ethers.providers.Log) => {
-  console.log('NextBatchReady log', log)
-  config.ethersProvider.once('block', data => processBatch(data.blockNumber).catch(handleBatchError))
+server.contract.on('NextBatchReady', async () => {
+  await utils.nextBlock(config.ethersProvider)
+  await server.processBatch(onRequest)
 })
+
+await server.processBatch(onRequest)
 
 console.log('Server started')
