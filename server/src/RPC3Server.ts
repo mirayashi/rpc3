@@ -1,16 +1,22 @@
 import { ethers } from 'ethers'
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
+import type { AsyncDatabase } from 'promised-sqlite3'
 
 import type { AppConfig } from '../app.config.js'
-import { type RPC3, RPC3Factory, multihash, utils } from 'rpc3-common'
+import { type Request, type Response, type RPC3, RPC3Factory, multihash, utils } from 'rpc3-common'
 import IPFSStorage from './IPFSStorage.js'
-import type { Request, RequestPayload, Response } from './types.js'
+
+export type RequestContext = {
+  db: AsyncDatabase
+  author: string
+  payload: Request
+}
 
 export default class RPC3Server {
   private readonly _ipfs: IPFSStorage
   private readonly _contract: RPC3
 
-  constructor(ipfs: IPFSStorage, contract: RPC3) {
+  private constructor(ipfs: IPFSStorage, contract: RPC3) {
     this._ipfs = ipfs
     this._contract = contract
   }
@@ -34,7 +40,7 @@ export default class RPC3Server {
     }
   }
 
-  async processBatch(onRequest: (req: Request) => Promise<Response>) {
+  async processBatch(onRequest: (req: RequestContext) => Promise<Response>) {
     const batch = await this._contract
       .getCurrentBatch(0)
       .catch(err => console.error('processBatch(): could not get batch info', err))
@@ -51,7 +57,7 @@ export default class RPC3Server {
     const responses: string[] = []
     for (const { author, ipfsHash } of batch.requests) {
       const cid = multihash.stringify(ipfsHash)
-      const payload: RequestPayload = JSON.parse(await utils.asyncIterableToString(this._ipfs.client.cat(cid)))
+      const payload: Request = JSON.parse(await utils.asyncIterableToString(this._ipfs.client.cat(cid)))
       const response = await onRequest({ db, author, payload })
       const addResult = await this._ipfs.client.add(JSON.stringify(response))
       responses.push(addResult.cid.toString())

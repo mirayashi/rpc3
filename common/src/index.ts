@@ -12,4 +12,6 @@ export type * from './multihash'
 
 export { requireEnv } from './requireEnv'
 
+export type * from './types'
+
 export * as utils from './utils'
