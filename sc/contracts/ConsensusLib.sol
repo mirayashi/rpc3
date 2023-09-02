@@ -19,9 +19,7 @@ library ConsensusLib {
     ) internal returns (ConsensusState) {
         bytes32 resultHash = keccak256(abi.encode(result));
         self.resultsByServer[msg.sender] = resultHash;
-        if (
-            self.resultsByHash[resultHash].responseIpfsHash.digest == bytes32(0)
-        ) {
+        if (self.resultsByHash[resultHash].responseCid.digest == bytes32(0)) {
             self.resultsByHash[resultHash] = result;
         }
         self.serversWhoParticipated[self.numberOfParticipants++] = msg.sender;
@@ -60,5 +58,11 @@ library ConsensusLib {
         address addr
     ) internal view returns (bool) {
         return self.resultsByServer[addr] != bytes32(0);
+    }
+
+    function finalResult(
+        Consensus storage self
+    ) internal view returns (BatchResult storage) {
+        return self.resultsByHash[self.resultWithLargestCount];
     }
 }

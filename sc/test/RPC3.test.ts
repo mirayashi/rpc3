@@ -19,8 +19,9 @@ import { registerManyServers, toStruct } from '../src/utils'
 describe('RPC3', () => {
   describe('Deployment', () => {
     it('Should initialize correctly', async () => {
-      const { contract, globalParams } = await loadFixture(deploy)
+      const { contract, globalParams, stateCid } = await loadFixture(deploy)
       expect(await contract.globalParams()).to.deep.equal(toStruct(globalParams))
+      expect(await contract.getStateCid()).to.deep.equal(toStruct(stateCid))
     })
 
     it('Should fail if global params are invalid', async () => {
@@ -299,7 +300,7 @@ describe('RPC3', () => {
       const {
         contract,
         users: [user1],
-        stateIpfsHash,
+        stateCid,
         globalParams: { consensusMaxDuration }
       } = await loadFixture(deployAndRegisterOwner)
       await expect(contract.connect(user1).sendRequest(multihash.generate('request1')))
@@ -307,12 +308,12 @@ describe('RPC3', () => {
         .withArgs(1)
       await expectThatCurrentBatchHas(contract, {
         nonce: 1,
-        stateIpfsHash,
+        stateCid,
         sizeOf: 1,
         requests: [
           toStruct({
             author: user1.address,
-            ipfsHash: toStruct(multihash.generate('request1'))
+            cid: toStruct(multihash.generate('request1'))
           })
         ],
         expiresAt: (await time.latest()) + consensusMaxDuration.toNumber()
@@ -324,18 +325,18 @@ describe('RPC3', () => {
         contract,
         owner,
         users: [user1],
-        stateIpfsHash
+        stateCid
       } = await loadFixture(deployAndSubmitOneRequest)
 
       await contract.sendRequest(multihash.generate('request2'))
       // request2 should be only in queue, not in batch
       await expectThatCurrentBatchHas(contract.connect(user1), {
-        stateIpfsHash,
+        stateCid,
         sizeOf: 1,
         requests: [
           toStruct({
             author: owner.address,
-            ipfsHash: toStruct(multihash.generate('request1'))
+            cid: toStruct(multihash.generate('request1'))
           })
         ]
       })
@@ -485,6 +486,8 @@ describe('RPC3', () => {
       await contract.connect(user2).applyPendingContribution()
       await contract.connect(user3).applyPendingContribution()
 
+      expect(await contract.getStateCid()).to.deep.equal(toStruct(RESULT_1.finalStateCid))
+
       expect(await contract.connect(user1).getServerData()).to.deep.equal(
         toStruct({
           addr: user1.address,
@@ -612,12 +615,12 @@ describe('RPC3', () => {
 
       await expectThatCurrentBatchHas(contract.connect(user1), {
         nonce: 2,
-        stateIpfsHash: RESULT_1.finalStateIpfsHash,
+        stateCid: RESULT_1.finalStateCid,
         sizeOf: 1,
         requests: [
           toStruct({
             author: owner.address,
-            ipfsHash: toStruct(multihash.generate('request2'))
+            cid: toStruct(multihash.generate('request2'))
           })
         ],
         expiresAt: (await time.latest()) + consensusMaxDuration.toNumber()
@@ -650,7 +653,7 @@ describe('RPC3', () => {
 
     it('Should read correct response when batch has one request', async () => {
       const { contract } = await loadFixture(deployAndReachConsensus)
-      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseIpfsHash), 0])
+      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseCid), 0])
     })
 
     it('Should read correct response when request is queued for a future batch', async () => {
@@ -697,11 +700,11 @@ describe('RPC3', () => {
         .to.emit(contract, 'BatchCompleted')
         .withArgs(3)
 
-      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseIpfsHash), 0])
-      expect(await contract.getResponse(1)).to.deep.equal([toStruct(RESULT_2.responseIpfsHash), 0])
-      expect(await contract.getResponse(2)).to.deep.equal([toStruct(RESULT_2.responseIpfsHash), 1])
-      expect(await contract.getResponse(3)).to.deep.equal([toStruct(RESULT_2.responseIpfsHash), 2])
-      expect(await contract.getResponse(4)).to.deep.equal([toStruct(RESULT_3.responseIpfsHash), 0])
+      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseCid), 0])
+      expect(await contract.getResponse(1)).to.deep.equal([toStruct(RESULT_2.responseCid), 0])
+      expect(await contract.getResponse(2)).to.deep.equal([toStruct(RESULT_2.responseCid), 1])
+      expect(await contract.getResponse(3)).to.deep.equal([toStruct(RESULT_2.responseCid), 2])
+      expect(await contract.getResponse(4)).to.deep.equal([toStruct(RESULT_3.responseCid), 0])
     })
   })
 

@@ -1,14 +1,14 @@
 import { multihash, Multihash } from 'rpc3-common'
 
 interface Result {
-  finalStateIpfsHash: Multihash
-  responseIpfsHash: Multihash
+  finalStateCid: Multihash
+  responseCid: Multihash
 }
 
 function generate(id: string): Result {
   return {
-    finalStateIpfsHash: multihash.generate(`final state for ${id}`),
-    responseIpfsHash: multihash.generate(`some response for ${id}`)
+    finalStateCid: multihash.generate(`final state for ${id}`),
+    responseCid: multihash.generate(`some response for ${id}`)
   }
 }
 

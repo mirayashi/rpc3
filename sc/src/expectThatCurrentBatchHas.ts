@@ -7,13 +7,13 @@ async function expectThatCurrentBatchHas(
   contract: Contract,
   {
     nonce,
-    stateIpfsHash,
+    stateCid,
     requests,
     sizeOf,
     expiresAt
   }: {
     nonce?: number
-    stateIpfsHash?: Multihash
+    stateCid?: Multihash
     requests?: Array<RequestStruct>
     sizeOf?: number
     expiresAt?: number
@@ -23,8 +23,8 @@ async function expectThatCurrentBatchHas(
   if (nonce) {
     expect(batchView.nonce).to.equal(nonce)
   }
-  if (stateIpfsHash) {
-    expect(batchView.initialStateIpfsHash).to.deep.equal(Object.assign(Object.values(stateIpfsHash), stateIpfsHash))
+  if (stateCid) {
+    expect(batchView.initialStateCid).to.deep.equal(Object.assign(Object.values(stateCid), stateCid))
   }
   if (sizeOf) {
     expect(batchView.requests).to.have.lengthOf(sizeOf)

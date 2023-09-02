@@ -23,10 +23,10 @@ export async function deploy(globalParamsOverrides?: object) {
     maxBatchSize: ethers.BigNumber.from(6000),
     ...globalParamsOverrides
   }
-  const stateIpfsHash = multihash.parse('QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk')
-  const contract = await RPC3.deploy(globalParams, stateIpfsHash)
+  const stateCid = multihash.parse('QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk')
+  const contract = await RPC3.deploy(globalParams, stateCid)
 
-  return { contract, globalParams, stateIpfsHash, owner, users }
+  return { contract, globalParams, stateCid, owner, users }
 }
 
 export async function deployAndRegisterOwner(globalParamsOverrides?: object) {

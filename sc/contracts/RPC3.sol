@@ -101,13 +101,10 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     error ServerAlreadyRegistered();
     error ServerNotRegistered();
 
-    constructor(
-        GlobalParams memory globalParams_,
-        IPFSMultihash memory stateIpfsHash
-    ) {
+    constructor(GlobalParams memory globalParams_, CID memory stateCid) {
         globalParams = globalParams_.validate();
         _stake.minAmount = globalParams.minStake;
-        _batch.initialStateIpfsHash = stateIpfsHash;
+        _batch.initialStateCid = stateCid;
     }
 
     /**
@@ -164,6 +161,13 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      */
     function getServerCount() external view returns (uint) {
         return _serverSet.length();
+    }
+
+    /**
+     * @dev Get the IPFS CID of the data representing the state of the app.
+     */
+    function getStateCid() external view returns (CID memory) {
+        return _batch.initialStateCid;
     }
 
     /**
@@ -254,7 +258,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
 
     /**
      * @dev Get all data from the current batch. Servers are expected to process each request in order, initializing
-     * their state as per initialStateIpfsHash. The result is then later submitted via submitBatchResult().
+     * their state as per initialStateCid. The result is then later submitted via submitBatchResult().
      *
      * If the batch is too large, this function is paginated so it may be necessary to call this function once for each
      * page in order to get the full batch data.
@@ -276,7 +280,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
             nonce: _batch.nonce,
             page: page,
             maxPage: pg.maxPage,
-            initialStateIpfsHash: _batch.initialStateIpfsHash,
+            initialStateCid: _batch.initialStateCid,
             requests: new Request[](pg.currentPageSize),
             expiresAt: startedAt + globalParams.consensusMaxDuration
         });
@@ -322,7 +326,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
             _serverSet.length()
         );
         if (state == ConsensusState.SUCCESS) {
-            _handleConsensusSuccess(batchNonce, result);
+            _handleConsensusSuccess(batchNonce);
         } else if (state == ConsensusState.FAILED) {
             _handleConsensusFailed(batchNonce);
         }
@@ -479,12 +483,10 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
 
     /**
      * @dev Clients may send requests through this function. If current batch is empty, it is loaded immediately in a
-     * batch, otherwise it is enqueued and will be processed in next batch.
+     * singleton batch, otherwise it is enqueued and will be processed in next batch.
      */
-    function sendRequest(
-        IPFSMultihash calldata requestIpfsHash
-    ) external whenNotPaused {
-        _queueRequest(requestIpfsHash);
+    function sendRequest(CID calldata requestCid) external whenNotPaused {
+        _queueRequest(requestCid);
         if (_batchSize() == 0) {
             _batch.inProgress = true;
             _prepareNextBatch();
@@ -498,7 +500,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      */
     function getResponse(
         uint requestNonce
-    ) external view returns (IPFSMultihash memory, uint) {
+    ) external view returns (CID memory, uint) {
         address author = _requestQueue.queue[requestNonce].author;
         if (author == address(0)) {
             revert InvalidRequestNonce();
@@ -532,7 +534,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
 
     function _retrieveResponseFromNonce(
         uint nonce
-    ) internal view returns (IPFSMultihash storage, uint position) {
+    ) internal view returns (CID storage, uint position) {
         BatchCoordinates storage coords = _mapRequestNonceToBatchCoordinates[
             nonce
         ];
@@ -540,16 +542,16 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         BatchResult storage result = consensus.resultsByHash[
             consensus.resultWithLargestCount
         ];
-        if (result.responseIpfsHash.digest == bytes32(0)) {
+        if (result.responseCid.digest == bytes32(0)) {
             revert ResponseNotAvailable();
         }
-        return (result.responseIpfsHash, coords.position);
+        return (result.responseCid, coords.position);
     }
 
-    function _queueRequest(IPFSMultihash calldata requestIpfsHash) internal {
+    function _queueRequest(CID calldata requestCid) internal {
         uint requestNonce = _requestQueue.tail++;
         Request storage req = _requestQueue.queue[requestNonce];
-        req.ipfsHash = requestIpfsHash;
+        req.cid = requestCid;
         req.author = msg.sender;
         uint batchNonce = _calculateAndSaveBatchCoordinates(requestNonce);
         emit RequestSubmitted(requestNonce, batchNonce);
@@ -597,11 +599,9 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         }
     }
 
-    function _handleConsensusSuccess(
-        uint batchNonce,
-        BatchResult calldata result
-    ) internal {
-        _batch.initialStateIpfsHash = result.finalStateIpfsHash;
+    function _handleConsensusSuccess(uint batchNonce) internal {
+        BatchResult storage result = _consensus[batchNonce].finalResult();
+        _batch.initialStateCid = result.finalStateCid;
         // the most gas-efficient way to flip consensus.isActive() to false
         delete _consensus[batchNonce].startedAt;
         emit BatchCompleted(batchNonce);

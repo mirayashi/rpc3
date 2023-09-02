@@ -52,20 +52,20 @@ export default class RPC3Server {
       console.log('skip batch tx', await tx.wait())
       return
     }
-    await this._ipfs.restoreDatabase(multihash.stringify(batch.initialStateIpfsHash))
+    await this._ipfs.restoreDatabase(multihash.stringify(batch.initialStateCid))
     const db = await this._ipfs.openDatabase()
     const responses: string[] = []
-    for (const { author, ipfsHash } of batch.requests) {
-      const cid = multihash.stringify(ipfsHash)
+    for (const { author, cid } of batch.requests) {
+      const cid = multihash.stringify(cid)
       const payload: Request = JSON.parse(await utils.asyncIterableToString(this._ipfs.client.cat(cid)))
       const response = await onRequest({ db, author, payload })
       const addResult = await this._ipfs.client.add(JSON.stringify(response))
       responses.push(addResult.cid.toString())
     }
     await db.close()
-    const finalStateIpfsHash = multihash.parse((await this._ipfs.persistDatabase()).toString())
-    const responseIpfsHash = multihash.parse((await this._ipfs.client.add(JSON.stringify(responses))).cid.toString())
-    const tx = await this._contract.submitBatchResult(batch.nonce, { finalStateIpfsHash, responseIpfsHash })
+    const finalStateCid = multihash.parse((await this._ipfs.persistDatabase()).toString())
+    const responseCid = multihash.parse((await this._ipfs.client.add(JSON.stringify(responses))).cid.toString())
+    const tx = await this._contract.submitBatchResult(batch.nonce, { finalStateCid, responseCid })
     console.log('submit batch result tx', await tx.wait())
   }
 }

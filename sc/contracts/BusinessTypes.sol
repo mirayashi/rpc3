@@ -8,7 +8,7 @@ uint constant HOUSEKEEP_MAX_SIZE = 10;
 struct Batch {
     uint nonce;
     uint head;
-    IPFSMultihash initialStateIpfsHash;
+    CID initialStateCid;
     bool inProgress;
 }
 
@@ -23,12 +23,12 @@ struct BatchView {
     uint maxPage;
     uint expiresAt;
     Request[] requests;
-    IPFSMultihash initialStateIpfsHash;
+    CID initialStateCid;
 }
 
 struct BatchResult {
-    IPFSMultihash responseIpfsHash;
-    IPFSMultihash finalStateIpfsHash;
+    CID responseCid;
+    CID finalStateCid;
 }
 
 struct Consensus {
@@ -47,7 +47,7 @@ enum Contribution {
     SLASH
 }
 
-struct IPFSMultihash {
+struct CID {
     bytes32 header;
     bytes32 digest;
 }
@@ -68,7 +68,7 @@ struct GlobalParams {
 
 struct Request {
     address author;
-    IPFSMultihash ipfsHash;
+    CID cid;
 }
 
 struct RequestQueue {
@@ -78,7 +78,7 @@ struct RequestQueue {
 }
 
 struct Response {
-    IPFSMultihash ipfsHash;
+    CID cid;
 }
 
 struct Server {

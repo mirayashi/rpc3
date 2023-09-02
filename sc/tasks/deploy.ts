@@ -18,7 +18,7 @@ const globalParamsDefault = {
 }
 
 task('deploy', 'Deploy the contract')
-  .addParam('stateIpfsHash', 'IPFS hash of data representing the initial state of the app')
+  .addParam('stateCid', 'IPFS CID of data representing the initial state of the app')
   .addOptionalParam('minStake', 'Mimimum amount to stake (in wei) when registering as a server')
   .addOptionalParam('consensusMaxDuration', 'Maximum duration (in seconds) for a batch to reach consensus')
   .addOptionalParam(
@@ -60,8 +60,8 @@ task('deploy', 'Deploy the contract')
         .filter(([k, v]) => Object.keys(globalParamsDefault).includes(k) && typeof v !== 'undefined')
         .reduce((acc, [k, v]) => Object.assign(acc, { [k]: v }), {})
     }
-    const stateIpfsHash = multihash.parse(args.stateIpfsHash)
-    const contract = await RPC3.deploy(globalParams, stateIpfsHash)
+    const stateCid = multihash.parse(args.stateCid)
+    const contract = await RPC3.deploy(globalParams, stateCid)
 
     const { address } = await contract.deployed()
 
