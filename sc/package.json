@@ -18,6 +18,7 @@
     "compile:force": "hardhat compile --force",
     "compile:clean": "hardhat clean && hardhat compile",
     "deploy": "hardhat --network sapphire_testnet deploy",
+    "deploy:pcu": "hardhat --network sapphire_testnet deploy-pcu",
     "test": "cross-env REPORT_GAS=true hardhat test",
     "test:perf": "cross-env REPORT_GAS=true PERF=true hardhat test",
     "clean": "hardhat clean"

@@ -67,3 +67,37 @@ task('deploy', 'Deploy the contract')
 
     console.log(`RPC3 deployed to ${address}`)
   })
+
+task('deploy-pcu', 'Deploy the Private Computation Unit contract')
+  .addFlag('test', 'Test basic encryption / decryption after deploy')
+  .setAction(async (args, hre) => {
+    const ethers = hre.ethers
+    const PrivateComputationUnit = await ethers.getContractFactory('PrivateComputationUnit')
+    const contract = await PrivateComputationUnit.deploy()
+    const { address } = await contract.deployed()
+    console.log(`PrivateComputationUnit deployed to ${address}`)
+    if (args.test) {
+      const tx = await contract.createKey('foo')
+      await tx.wait()
+      console.log('Generated key foo')
+      await new Promise<void>((resolve, reject) => {
+        contract.provider.once('block', async () => {
+          try {
+            const ciphertext = await contract.encrypt('foo', 1, Buffer.from('hello world!'), Buffer.alloc(0))
+            console.log('encrypted', ciphertext)
+            console.log(
+              'decrypted',
+              Buffer.from((await contract.decrypt('foo', 1, ciphertext, Buffer.alloc(0))).substring(2), 'hex').toString(
+                'utf8'
+              )
+            )
+            resolve()
+          } catch (err) {
+            reject(err)
+          }
+        })
+      })
+      await contract.revokeKey('foo')
+      console.log('Revoked key foo')
+    }
+  })
