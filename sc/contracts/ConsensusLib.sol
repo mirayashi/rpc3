@@ -60,6 +60,16 @@ library ConsensusLib {
         return self.resultsByServer[addr] != bytes32(0);
     }
 
+    function hasPositivelyContributed(
+        Consensus storage self,
+        address addr
+    ) internal view returns (bool) {
+        bytes32 resultHash = self.resultWithLargestCount;
+        return
+            resultHash != bytes32(0) &&
+            self.resultsByServer[addr] == resultHash;
+    }
+
     function finalResult(
         Consensus storage self
     ) internal view returns (BatchResult storage) {

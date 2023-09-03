@@ -31,6 +31,11 @@ struct BatchResult {
     CID finalStateCid;
 }
 
+struct CID {
+    bytes32 header;
+    bytes32 digest;
+}
+
 struct Consensus {
     mapping(bytes32 => BatchResult) resultsByHash;
     mapping(address => bytes32) resultsByServer;
@@ -41,23 +46,12 @@ struct Consensus {
     bytes32 resultWithLargestCount;
 }
 
-enum Contribution {
-    NEUTRAL,
-    REWARD,
-    SLASH
-}
-
-struct CID {
-    bytes32 header;
-    bytes32 digest;
-}
-
 struct GlobalParams {
     uint minStake;
     uint consensusMaxDuration;
     uint consensusQuorumPercent;
     uint consensusMajorityPercent;
-    uint inactivityDuration;
+    uint inactivityThreshold;
     uint ownerRoyaltiesPercent;
     uint slashPercent;
     uint housekeepBaseReward;

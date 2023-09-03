@@ -5,10 +5,10 @@ import '@oasisprotocol/sapphire-hardhat'
 
 const globalParamsDefault = {
   minStake: '1000000000000000000',
-  consensusMaxDuration: 60,
+  consensusMaxDuration: 90,
   consensusQuorumPercent: 85,
   consensusMajorityPercent: 85,
-  inactivityDuration: 3600,
+  inactivityThreshold: 10,
   ownerRoyaltiesPercent: 5,
   slashPercent: 4,
   housekeepBaseReward: 20,
@@ -30,8 +30,8 @@ task('deploy', 'Deploy the contract')
     'Minimum % of total submitted results that the majority must reach for a consensus to be considered established'
   )
   .addOptionalParam(
-    'inactivityDuration',
-    'A server that is inactive for more than this value (in seconds) may be auto-unregistered anytime via the housekeeping process'
+    'inactivityThreshold',
+    'A server that has not participated for this number of batches may be auto-unregistered anytime via the housekeeping process'
   )
   .addOptionalParam(
     'ownerRoyaltiesPercent',
@@ -74,6 +74,7 @@ task('deploy-pcu', 'Deploy the Private Computation Unit contract')
     const ethers = hre.ethers
     const PrivateComputationUnit = await ethers.getContractFactory('PrivateComputationUnit')
     const contract = await PrivateComputationUnit.deploy()
+    const [owner] = await ethers.getSigners()
     const { address } = await contract.deployed()
     console.log(`PrivateComputationUnit deployed to ${address}`)
     if (args.test) {
@@ -83,13 +84,20 @@ task('deploy-pcu', 'Deploy the Private Computation Unit contract')
       await new Promise<void>((resolve, reject) => {
         contract.provider.once('block', async () => {
           try {
-            const ciphertext = await contract.encrypt('foo', 1, Buffer.from('hello world!'), Buffer.alloc(0))
+            const ciphertext = await contract.encrypt(
+              owner.address,
+              'foo',
+              1,
+              Buffer.from('hello world!'),
+              Buffer.alloc(0)
+            )
             console.log('encrypted', ciphertext)
             console.log(
               'decrypted',
-              Buffer.from((await contract.decrypt('foo', 1, ciphertext, Buffer.alloc(0))).substring(2), 'hex').toString(
-                'utf8'
-              )
+              Buffer.from(
+                (await contract.decrypt(owner.address, 'foo', 1, ciphertext, Buffer.alloc(0))).substring(2),
+                'hex'
+              ).toString('utf8')
             )
             resolve()
           } catch (err) {
@@ -97,7 +105,7 @@ task('deploy-pcu', 'Deploy the Private Computation Unit contract')
           }
         })
       })
-      await contract.revokeKey('foo')
-      console.log('Revoked key foo')
+      await contract.destroyKey('foo')
+      console.log('Destroyed key foo')
     }
   })

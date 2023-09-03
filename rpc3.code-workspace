@@ -21,6 +21,7 @@
     "prettier.singleQuote": true,
     "solidity.defaultCompiler": "localNodeModule",
     "solidity.enabledAsYouTypeCompilationErrorCheck": true,
+    "rewrap.autoWrap.enabled": true,
     "[solidity]": {
       "editor.defaultFormatter": "JuanBlanco.solidity",
       "editor.indentSize": 4,

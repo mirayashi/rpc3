@@ -54,15 +54,13 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     }
 
     modifier withPendingContributions() {
-        if (!applyPendingContribution()) {
-            return;
-        }
+        applyPendingContribution();
         _;
     }
 
     modifier canHousekeep() {
         Server storage server = _servers[msg.sender];
-        if (block.timestamp < server.nextHousekeepAt) {
+        if (_batch.nonce < server.nextHousekeepAt) {
             revert HousekeepCooldown(server.nextHousekeepAt);
         }
         _;
@@ -171,6 +169,13 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     }
 
     /**
+     * @dev Get the current batch nonce.
+     */
+    function getCurrentBatchNonce() external view returns (uint) {
+        return _batch.nonce;
+    }
+
+    /**
      * @dev Register as a server. Requires to send a value that is greater than or equal to the minimum stake
      * requirement accessible via getStakeRequirement().
      */
@@ -187,10 +192,10 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         }
         s.addr = msg.sender;
         s.stake = msg.value;
-        s.lastSeen = block.timestamp;
+        s.lastSeen = _batch.nonce;
         s.contributions = 1;
         _serverSet.add(msg.sender);
-        _setNextHousekeepTimestamp(s);
+        _setNextHousekeepNonce(s);
         emit ServerRegistered(msg.sender);
     }
 
@@ -331,7 +336,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
             _handleConsensusFailed(batchNonce);
         }
         _pendingContributions[msg.sender] = batchNonce;
-        _servers[msg.sender].lastSeen = block.timestamp;
+        _servers[msg.sender].lastSeen = batchNonce;
         emit BatchResultHashSubmitted();
     }
 
@@ -350,7 +355,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         if (!consensus.isActive(globalParams)) {
             _handleConsensusFailed(batchNonce);
             _incContributionPoints(_servers[msg.sender]);
-            _servers[msg.sender].lastSeen = block.timestamp;
+            _servers[msg.sender].lastSeen = batchNonce;
         }
     }
 
@@ -376,6 +381,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         );
         address[] memory inactiveServers = new address[](HOUSEKEEP_MAX_SIZE);
         uint inactiveIndex;
+        uint batchNonce = _batch.nonce;
         for (
             uint i;
             i < pg.currentPageSize && inactiveIndex < HOUSEKEEP_MAX_SIZE;
@@ -383,9 +389,9 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         ) {
             address addr = _serverSet.at(pg.offset + i);
             if (addr == msg.sender) continue;
-            uint elapsedSeen = block.timestamp - _servers[addr].lastSeen;
-            if (elapsedSeen > globalParams.inactivityDuration) {
-                // Inactive for more than inactivityDuration = unregister
+            uint inactiveFor = batchNonce - _servers[addr].lastSeen;
+            if (inactiveFor > globalParams.inactivityThreshold) {
+                // Inactive for more than inactivityThreshold = unregister
                 inactiveServers[inactiveIndex++] = addr;
             }
         }
@@ -414,15 +420,16 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         uint cleanCount;
         uint totalSlashed;
         uint slashPercent = globalParams.slashPercent;
-        uint inactivityDuration = globalParams.inactivityDuration;
+        uint inactivityThreshold = globalParams.inactivityThreshold;
+        uint batchNonce = _batch.nonce;
         for (uint i; i < length; ++i) {
             address addr = inactiveServers[i];
             if (addr == msg.sender || !_serverSet.contains(addr)) continue;
-            uint elapsedSeen;
+            uint inactiveFor;
             unchecked {
-                elapsedSeen = block.timestamp - _servers[addr].lastSeen;
+                inactiveFor = batchNonce - _servers[addr].lastSeen;
             }
-            if (elapsedSeen > inactivityDuration) {
+            if (inactiveFor > inactivityThreshold) {
                 totalSlashed += _slash(addr, slashPercent);
                 _unregister(addr);
                 unchecked {
@@ -439,8 +446,8 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
                 cleanCount *
                 globalParams.housekeepCleanReward
         );
-        _servers[msg.sender].lastSeen = block.timestamp;
-        _setNextHousekeepTimestamp(server);
+        _servers[msg.sender].lastSeen = batchNonce;
+        _setNextHousekeepNonce(server);
         emit HousekeepSuccess(cleanCount, server.nextHousekeepAt);
     }
 
@@ -448,23 +455,15 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      * @dev Apply last contribution of the current server. It is generally not necessary to call this manually as it is
      * done automatically when interacting with the contract. But it may be useful in order to get more accurate
      * information when calling estimateClaimableRewards() or getServerData().
-     *
-     * @return bool false if the server got unregistered following this operation.
      */
-    function applyPendingContribution() public onlyRegistered returns (bool) {
-        Contribution contribution = _getLastContribution();
-        _pendingContributions[msg.sender] = 0;
-        if (contribution == Contribution.REWARD) {
+    function applyPendingContribution() public onlyRegistered {
+        uint lastContribution = _pendingContributions[msg.sender];
+        if (lastContribution == 0) return;
+        Consensus storage consensus = _consensus[lastContribution];
+        if (consensus.hasPositivelyContributed(msg.sender)) {
             _incContributionPoints(_servers[msg.sender]);
-            return true;
-        } else if (contribution == Contribution.SLASH) {
-            _addToTreasury(_slash(msg.sender, globalParams.slashPercent));
-            if (_servers[msg.sender].stake < globalParams.minStake) {
-                _unregister(msg.sender);
-                return false;
-            }
         }
-        return true;
+        _pendingContributions[msg.sender] = 0;
     }
 
     /**
@@ -615,23 +614,10 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         _prepareNextBatch();
     }
 
-    function _getLastContribution() internal view returns (Contribution) {
-        uint lastContribution = _pendingContributions[msg.sender];
-        if (lastContribution == 0) return Contribution.NEUTRAL;
-        Consensus storage consensus = _consensus[lastContribution];
-        bytes32 resultHash = consensus.resultWithLargestCount;
-        if (resultHash == bytes32(0)) return Contribution.NEUTRAL;
-        if (consensus.resultsByServer[msg.sender] == resultHash) {
-            return Contribution.REWARD;
-        } else {
-            return Contribution.SLASH;
-        }
-    }
-
-    function _setNextHousekeepTimestamp(Server storage s) internal {
+    function _setNextHousekeepNonce(Server storage s) internal {
         s.nextHousekeepAt =
-            block.timestamp +
-            globalParams.inactivityDuration *
+            _batch.nonce +
+            globalParams.inactivityThreshold *
             _serverSet.length();
     }
 

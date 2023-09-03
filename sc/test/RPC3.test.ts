@@ -14,7 +14,7 @@ import {
   deployAndRegisterOwner,
   deployAndSubmitOneRequest
 } from '../src/fixtures'
-import { registerManyServers, toStruct } from '../src/utils'
+import { registerManyServers, skipBatchesUntilInactive, toStruct } from '../src/utils'
 
 describe('RPC3', () => {
   describe('Deployment', () => {
@@ -143,8 +143,8 @@ describe('RPC3', () => {
           addr: owner.address,
           stake: globalParams.minStake,
           contributions: 0,
-          lastSeen: await time.latest(),
-          nextHousekeepAt: ethers.BigNumber.from(await time.latest()).add(globalParams.inactivityDuration)
+          lastSeen: 0,
+          nextHousekeepAt: globalParams.inactivityThreshold
         })
       )
       expect(await ethers.provider.getBalance(contract.address)).to.equal(globalParams.minStake)
@@ -456,31 +456,26 @@ describe('RPC3', () => {
 
     it('Should emit BatchCompleted and process contributions if quorum and majority is reached', async () => {
       const {
-        globalParams: { inactivityDuration },
+        globalParams: { inactivityThreshold },
         contract,
-        users: [user1, user2, user3],
-        usersLastSeen,
-        usersRegisteredAt
+        users: [user1, user2, user3]
       } = await loadFixture(deployAndSubmitOneRequest)
 
       await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
         .to.emit(contract, 'BatchResultHashSubmitted')
         .and.not.to.emit(contract, 'BatchCompleted')
         .and.not.to.emit(contract, 'BatchFailed')
-      usersLastSeen[0] = await time.latest()
 
       await expect(contract.connect(user2).submitBatchResult(1, RESULT_1))
         .to.emit(contract, 'BatchResultHashSubmitted')
         .and.not.to.emit(contract, 'BatchCompleted')
         .and.not.to.emit(contract, 'BatchFailed')
-      usersLastSeen[1] = await time.latest()
 
       await expect(contract.connect(user3).submitBatchResult(1, RESULT_2))
         .to.emit(contract, 'BatchResultHashSubmitted')
         .and.to.emit(contract, 'BatchCompleted')
         .withArgs(1)
         .and.not.to.emit(contract, 'BatchFailed')
-      usersLastSeen[2] = await time.latest()
 
       await contract.connect(user1).applyPendingContribution()
       await contract.connect(user2).applyPendingContribution()
@@ -493,8 +488,8 @@ describe('RPC3', () => {
           addr: user1.address,
           stake: ethers.utils.parseEther('1'),
           contributions: 1,
-          lastSeen: usersLastSeen[0],
-          nextHousekeepAt: ethers.BigNumber.from(usersRegisteredAt[0]).add(inactivityDuration)
+          lastSeen: 1,
+          nextHousekeepAt: inactivityThreshold
         })
       )
       expect(await contract.connect(user2).getServerData()).to.deep.equal(
@@ -502,38 +497,19 @@ describe('RPC3', () => {
           addr: user2.address,
           stake: ethers.utils.parseEther('2'),
           contributions: 1,
-          lastSeen: usersLastSeen[1],
-          nextHousekeepAt: ethers.BigNumber.from(usersRegisteredAt[1]).add(inactivityDuration.mul(2))
+          lastSeen: 1,
+          nextHousekeepAt: inactivityThreshold.mul(2)
         })
       )
       expect(await contract.connect(user3).getServerData()).to.deep.equal(
         toStruct({
           addr: user3.address,
-          stake: ethers.utils.parseEther('3.92'),
+          stake: ethers.utils.parseEther('4'),
           contributions: 0,
-          lastSeen: usersLastSeen[2],
-          nextHousekeepAt: ethers.BigNumber.from(usersRegisteredAt[2]).add(inactivityDuration.mul(3))
+          lastSeen: 1,
+          nextHousekeepAt: inactivityThreshold.mul(3)
         })
       )
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('0.08'))
-    })
-
-    it('Should unregister user after slashing if remaining stake is below minimum', async () => {
-      const {
-        contract,
-        users: [user1, user2, user3],
-        usersLastSeen
-      } = await loadFixture(deployAndSubmitOneRequest)
-      await contract.connect(user1).submitBatchResult(1, RESULT_2)
-      usersLastSeen[0] = await time.latest()
-      await contract.connect(user2).submitBatchResult(1, RESULT_1)
-      usersLastSeen[1] = await time.latest()
-      await contract.connect(user3).submitBatchResult(1, RESULT_1)
-      usersLastSeen[2] = await time.latest()
-
-      await expect(contract.connect(user1).applyPendingContribution()).to.emit(contract, 'ServerUnregistered')
-      expect(await contract.payments(user1.address)).to.equal(ethers.utils.parseEther('0.98'))
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('0.02'))
     })
 
     it('Should emit BatchFailed if quorum is reached but not majority', async () => {
@@ -736,21 +712,18 @@ describe('RPC3', () => {
     it('Should handle multiple pages of inactive servers', async () => {
       // Note: number of pages depends on the number of servers registered, not the number of servers actually inactive
       // so we might get 0 elements in first page and some elements in second page
-      const {
-        contract,
-        users: [user1]
-      } = await loadFixture(deployAndMake220UsersHousekeepable)
-      const [addresses0, maxPage0] = await contract.connect(user1).getInactiveServers(0)
+      const { contract } = await loadFixture(deployAndMake220UsersHousekeepable)
+      const [addresses0, maxPage0] = await contract.getInactiveServers(0)
       expect(addresses0).to.have.lengthOf(10) // results capped to 10
       expect(maxPage0).to.equal(1)
 
-      const [addresses1, maxPage1] = await contract.connect(user1).getInactiveServers(1)
+      const [addresses1, maxPage1] = await contract.getInactiveServers(1)
       expect(addresses1).to.have.lengthOf(10)
       expect(maxPage1).to.equal(1)
       // Check that addresses0 and addresses1 have nothing in common
       expect([...new Set(addresses0.concat(addresses1))]).to.have.lengthOf(20)
 
-      await expect(contract.connect(user1).getInactiveServers(2))
+      await expect(contract.getInactiveServers(2))
         .to.be.revertedWithCustomError(contract, 'MaxPageExceeded')
         .withArgs(1)
     })
@@ -758,56 +731,72 @@ describe('RPC3', () => {
     it('Should not housekeep more than 10 addresses at once', async () => {
       const {
         contract,
-        globalParams: { inactivityDuration }
+        globalParams: { inactivityThreshold }
       } = await loadFixture(deployAndMake220UsersHousekeepable)
       const [addresses0] = await contract.getInactiveServers(0)
       const [addresses1] = await contract.getInactiveServers(1)
       const serverCount = await contract.getServerCount()
       const expectedServerCountAfter = serverCount.sub(10)
-      const promise = contract.housekeepInactive(addresses0.concat(addresses1))
-      await promise // This is to make sure the function completes before time.latest()
-      await expect(promise)
+      await expect(contract.housekeepInactive(addresses0.concat(addresses1)))
         .to.emit(contract, 'HousekeepSuccess')
-        .withArgs(10, expectedServerCountAfter.mul(inactivityDuration).add(await time.latest()))
+        .withArgs(10, expectedServerCountAfter.mul(inactivityThreshold).add(await contract.getCurrentBatchNonce()))
       expect(await contract.getServerCount()).to.equal(expectedServerCountAfter)
     })
 
     it('Should emit HousekeepSuccess and give base reward when array is empty', async () => {
       const {
         contract,
-        globalParams: { inactivityDuration, housekeepBaseReward }
-      } = await loadFixture(deployAndRegisterOwner)
-      await time.increase(inactivityDuration)
-      await expect(contract.housekeepInactive([])).to.emit(contract, 'HousekeepSuccess')
-      expect((await contract.getServerData()).contributions).to.equal(housekeepBaseReward)
+        users: [user1, user2],
+        globalParams: { inactivityThreshold, housekeepBaseReward, consensusMaxDuration }
+      } = await loadFixture(deployAndRegister4Users)
+      await skipBatchesUntilInactive(
+        contract,
+        inactivityThreshold.toNumber() * 2,
+        consensusMaxDuration.toNumber(),
+        user1
+      )
+      await expect(contract.connect(user2).housekeepInactive([])).to.emit(contract, 'HousekeepSuccess')
+      expect((await contract.connect(user2).getServerData()).contributions).to.equal(housekeepBaseReward)
     })
 
     it('Should emit HousekeepSuccess but should not unregister the caller', async () => {
       const {
         contract,
-        globalParams: { inactivityDuration, housekeepBaseReward },
-        owner
-      } = await loadFixture(deployAndRegisterOwner)
-      await time.increase(inactivityDuration)
-      await expect(contract.housekeepInactive([owner.address]))
+        globalParams: { inactivityThreshold, housekeepBaseReward, consensusMaxDuration },
+        users: [user1, user2]
+      } = await loadFixture(deployAndRegister4Users)
+
+      await skipBatchesUntilInactive(
+        contract,
+        inactivityThreshold.toNumber() * 2,
+        consensusMaxDuration.toNumber(),
+        user1
+      )
+      await expect(contract.connect(user2).housekeepInactive([user2.address]))
         .to.emit(contract, 'HousekeepSuccess')
         .and.not.to.emit(contract, 'ServerUnregistered')
-      expect((await contract.getServerData()).contributions).to.equal(housekeepBaseReward)
+      expect((await contract.connect(user2).getServerData()).contributions).to.equal(housekeepBaseReward)
     })
 
     it('Should emit HousekeepSuccess and unregister user4', async () => {
       const {
         contract,
-        globalParams: { inactivityDuration, housekeepBaseReward, housekeepCleanReward },
+        globalParams: { inactivityThreshold, housekeepBaseReward, housekeepCleanReward, consensusMaxDuration },
         users: [user1, user2, user3, user4]
       } = await deployAndReachConsensus({ consensusMaxDuration: ethers.BigNumber.from(9999) })
 
       await contract.sendRequest(multihash.generate('request2'))
 
-      await time.increase(inactivityDuration)
-      await contract.connect(user1).submitBatchResult(2, RESULT_2)
-      await contract.connect(user2).submitBatchResult(2, RESULT_2)
-      await contract.connect(user3).submitBatchResult(2, RESULT_2)
+      await skipBatchesUntilInactive(
+        contract,
+        inactivityThreshold.toNumber() * 2,
+        consensusMaxDuration.toNumber(),
+        user1
+      )
+      const batchNonce = await contract.getCurrentBatchNonce()
+      await contract.connect(user1).submitBatchResult(batchNonce, RESULT_2)
+      await contract.connect(user2).submitBatchResult(batchNonce, RESULT_2)
+      await contract.connect(user3).submitBatchResult(batchNonce, RESULT_2)
 
       expect(await contract.connect(user1).getInactiveServers(0)).to.deep.equal([[user4.address], 0])
 
@@ -819,12 +808,12 @@ describe('RPC3', () => {
       expect(await contract.getServerCount()).to.equal(3)
 
       expect((await contract.connect(user1).getServerData()).contributions).to.equal(
-        housekeepBaseReward.add(housekeepCleanReward).add(2) // earned 2 points from submitting result
+        // earned 2 points from submitting result and 7 points from skipping batches
+        housekeepBaseReward.add(housekeepCleanReward).add(9)
       )
 
-      // user4 dfdf dsfwas slashed 0.16 because of inactivity, user3 was slashed 0.08 because they submitted wrong result in the
-      // fixture
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('0.24'))
+      // user4 slashed 0.16 because of inactivity
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('0.16'))
       expect(await contract.payments(user4.address)).to.equal(ethers.utils.parseEther('7.84'))
     })
   })
@@ -834,7 +823,7 @@ describe('RPC3', () => {
       const {
         contract,
         users: [user1, user2, user3],
-        globalParams: { consensusMaxDuration, inactivityDuration }
+        globalParams: { consensusMaxDuration, inactivityThreshold }
       } = await deployAndSubmitOneRequest({ consensusMaxDuration: ethers.BigNumber.from(9999) })
 
       await time.increase(consensusMaxDuration.add(1))
@@ -850,17 +839,23 @@ describe('RPC3', () => {
       await contract.connect(user2).submitBatchResult(2, RESULT_2)
       await contract.connect(user3).submitBatchResult(2, RESULT_2)
 
-      // Elapse time so user3 can housekeep
-      await time.increase(inactivityDuration.mul(3))
+      // Skip batches so user3 can housekeep. user3 will get 13 points for this.
+      await skipBatchesUntilInactive(
+        contract,
+        inactivityThreshold.toNumber() * 4,
+        consensusMaxDuration.toNumber(),
+        user3
+      )
 
       // users 1, 2 and 3 will get a contribution point by completing next batch User 3 will get extra points for
       // housekeeping
+      const nextBatchNonce = (await contract.getCurrentBatchNonce()).add(1)
       await expect(contract.sendRequest(multihash.generate('request3')))
         .to.emit(contract, 'NextBatchReady')
-        .withArgs(3)
-      await contract.connect(user1).submitBatchResult(3, RESULT_3)
-      await contract.connect(user2).submitBatchResult(3, RESULT_3)
-      await contract.connect(user3).submitBatchResult(3, RESULT_3)
+        .withArgs(nextBatchNonce)
+      await contract.connect(user1).submitBatchResult(nextBatchNonce, RESULT_3)
+      await contract.connect(user2).submitBatchResult(nextBatchNonce, RESULT_3)
+      await contract.connect(user3).submitBatchResult(nextBatchNonce, RESULT_3)
       await contract.connect(user3).housekeepInactive((await contract.connect(user3).getInactiveServers(0))[0])
 
       await contract.connect(user1).applyPendingContribution()
@@ -869,21 +864,21 @@ describe('RPC3', () => {
 
       expect((await contract.connect(user1).getServerData()).contributions).to.equal(3)
       expect((await contract.connect(user2).getServerData()).contributions).to.equal(2)
-      expect((await contract.connect(user3).getServerData()).contributions).to.equal(13)
+      expect((await contract.connect(user3).getServerData()).contributions).to.equal(26)
 
       // there's already 0.16 ether in treasury because of user4 housekeeping
-      await contract.donateToTreasury({ value: ethers.utils.parseEther('359.84') })
+      await contract.donateToTreasury({ value: ethers.utils.parseEther('309.84') })
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('360'))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('60'))
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('40'))
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('310'))
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('30'))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('20'))
       expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('260'))
 
       await contract.connect(user1).claimRewards()
 
-      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('300'))
+      expect(await contract.treasury()).to.equal(ethers.utils.parseEther('280'))
       expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('40'))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('20'))
       expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('260'))
 
       await contract.connect(user2).claimRewards()
@@ -905,10 +900,18 @@ describe('RPC3', () => {
   if (process.env.PERF === 'true') {
     describe('Performance tests', () => {
       async function playScenario(requestsPerBatch: number, serverCount: number) {
-        const { contract, owner } = await deploy({ consensusMaxDuration: ethers.BigNumber.from(999999) })
-        const wallets = await registerManyServers(contract, owner, serverCount)
+        const {
+          contract,
+          globalParams: { inactivityThreshold, consensusMaxDuration }
+        } = await deploy({ consensusMaxDuration: ethers.BigNumber.from(999999) })
+        const wallets = await registerManyServers(contract, serverCount)
         expect(await contract.getServerCount()).to.equal(serverCount)
-        await time.increase(3600)
+        await skipBatchesUntilInactive(
+          contract,
+          inactivityThreshold.toNumber(),
+          consensusMaxDuration.toNumber(),
+          wallets[0]
+        )
 
         // First requests initializes a batch of 1
         let counter = 0
