@@ -30,8 +30,8 @@
   "workspaces": [
     "common",
     "sc",
-    "server",
-    "client"
+    "counter-app/server",
+    "counter-app/client"
   ],
   "dependencies": {
     "@oasisprotocol/sapphire-paratime": "^1.1.1",
