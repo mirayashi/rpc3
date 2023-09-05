@@ -14,7 +14,8 @@ const globalParamsDefault = {
   housekeepBaseReward: 20,
   housekeepCleanReward: 2,
   maxServers: 200,
-  maxBatchSize: 6000
+  maxBatchSize: 6000,
+  contributionPointMaxValue: '1000000000000000000'
 }
 
 task('deploy', 'Deploy the contract')
@@ -51,6 +52,7 @@ task('deploy', 'Deploy the contract')
   )
   .addOptionalParam('maxServers', 'Maximum number of servers that may be registered in the protocol')
   .addOptionalParam('maxBatchSize', 'Maximum number of requests contained in a single batch')
+  .addOptionalParam('contributionPointMaxValue', 'Maximum value in wei for a single contribution point')
   .setAction(async (args, hre) => {
     const ethers = hre.ethers
     const RPC3 = await ethers.getContractFactory('RPC3')

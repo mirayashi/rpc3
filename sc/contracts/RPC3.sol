@@ -307,8 +307,8 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      *   recorded and no other action will be made.
      * - Consensus between servers has been reached: the result that has been agreed on (may be different from the one
      *   passed to this function) is made available to clients through getResponse(), and each server who participated
-     *   will either receive a reward point or be slashed accordingly next time they will interact with the contract. If
-     *   the queue is not empty, a new batch will be prepared.
+     *   will receive a reward point accordingly next time they will interact with the contract. If the queue is not
+     *   empty, a new batch will be prepared.
      * - Consensus between servers has failed (required majority not reached): batch is marked as failed and moves on to
      *   next batch (if queue is not empty).
      */
@@ -648,7 +648,11 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         if (total == 0) {
             return 0;
         }
-        return (treasury * share) / total;
+        return
+            Math.min(
+                (treasury * share) / total,
+                share * globalParams.contributionPointMaxValue
+            );
     }
 
     function _slash(address addr, uint slashPercent) internal returns (uint) {

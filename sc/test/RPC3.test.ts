@@ -358,7 +358,8 @@ describe('RPC3', () => {
         contract.connect(user1).getInactiveServers(0),
         contract.connect(user1).housekeepInactive([]),
         contract.connect(user1).estimateClaimableRewards(),
-        contract.connect(user1).claimRewards()
+        contract.connect(user1).claimRewards(),
+        contract.connect(user1).applyPendingContribution()
       ]
 
       for (const f of functions) {
@@ -824,7 +825,10 @@ describe('RPC3', () => {
         contract,
         users: [user1, user2, user3],
         globalParams: { consensusMaxDuration, inactivityThreshold }
-      } = await deployAndSubmitOneRequest({ consensusMaxDuration: ethers.BigNumber.from(9999) })
+      } = await deployAndSubmitOneRequest({
+        consensusMaxDuration: ethers.BigNumber.from(9999),
+        contributionPointMaxValue: ethers.utils.parseEther('10')
+      })
 
       await time.increase(consensusMaxDuration.add(1))
 
@@ -894,6 +898,28 @@ describe('RPC3', () => {
       expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
       expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(0)
       expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(0)
+    })
+
+    it('Should limit the value of one contribution point if the treasury is big', async () => {
+      const {
+        contract,
+        globalParams: { inactivityThreshold, consensusMaxDuration },
+        users: [user1, user2]
+      } = await loadFixture(deployAndReachConsensus)
+
+      await skipBatchesUntilInactive(contract, inactivityThreshold.toNumber(), consensusMaxDuration.toNumber(), user1)
+      await contract.connect(user2).applyPendingContribution()
+
+      expect((await contract.connect(user1).getServerData()).contributions).to.equal(5)
+      expect((await contract.connect(user2).getServerData()).contributions).to.equal(1)
+
+      await contract.donateToTreasury({ value: ethers.utils.parseEther('100') })
+
+      // Treasury contains 100 ethers, but one contribution point cannot exceed 1 ether in value.
+      // Without this limit, user1 and user2 would be sharing the entirety of the treasury
+      // (100 * 5/6 = 83.33 ethers for user1 and 16.66 ethers for user2)
+      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('5'))
+      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('1'))
     })
   })
 

@@ -20,6 +20,7 @@ export async function deploy(globalParamsOverrides?: object) {
     housekeepCleanReward: ethers.BigNumber.from(1),
     maxServers: ethers.BigNumber.from(300),
     maxBatchSize: ethers.BigNumber.from(6000),
+    contributionPointMaxValue: ethers.utils.parseEther('1'),
     ...globalParamsOverrides
   }
   const stateCid = multihash.parse('QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk')

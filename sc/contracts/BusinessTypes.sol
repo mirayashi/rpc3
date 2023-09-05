@@ -58,6 +58,7 @@ struct GlobalParams {
     uint housekeepCleanReward;
     uint maxServers;
     uint maxBatchSize;
+    uint contributionPointMaxValue;
 }
 
 struct Request {
