@@ -11,8 +11,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.
 import "./BusinessTypes.sol";
 import {ConsensusLib, ConsensusState} from "./ConsensusLib.sol";
 import {GlobalParamsValidator} from "./GlobalParamsValidator.sol";
-import {PaginationLib, Pagination} from "./PaginationLib.sol";
-import {StakeLib} from "./StakeLib.sol";
+import {PaginationLib, Pagination} from "../common/PaginationLib.sol";
+import {StakeLib} from "../common/StakeLib.sol";
 
 contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -77,7 +77,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     event AddedToTreasury(uint amount, uint royalties);
     event BatchCompleted(uint indexed batchNonce);
     event BatchFailed(uint indexed batchNonce);
-    event BatchResultHashSubmitted();
+    event BatchResultSubmitted(address indexed serverAddr);
     event GlobalParamsUpdated(GlobalParams newValue);
     event HousekeepSuccess(uint cleanCount, uint nextHousekeepTimestamp);
     event NextBatchReady(uint indexed batchNonce);
@@ -337,7 +337,7 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
         }
         _pendingContributions[msg.sender] = batchNonce;
         _servers[msg.sender].lastSeen = batchNonce;
-        emit BatchResultHashSubmitted();
+        emit BatchResultSubmitted(msg.sender);
     }
 
     /**

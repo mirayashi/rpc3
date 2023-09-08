@@ -393,7 +393,9 @@ describe('RPC3', () => {
         contract,
         users: [user1]
       } = await loadFixture(deployAndSubmitOneRequest)
-      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.emit(contract, 'BatchResultHashSubmitted')
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user1.address)
       await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.be.revertedWithCustomError(
         contract,
         'ResultAlreadySubmitted'
@@ -407,7 +409,9 @@ describe('RPC3', () => {
         globalParams
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.emit(contract, 'BatchResultHashSubmitted')
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user1.address)
 
       await time.increase(globalParams.consensusMaxDuration)
 
@@ -463,17 +467,20 @@ describe('RPC3', () => {
       } = await loadFixture(deployAndSubmitOneRequest)
 
       await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
-        .to.emit(contract, 'BatchResultHashSubmitted')
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user1.address)
         .and.not.to.emit(contract, 'BatchCompleted')
         .and.not.to.emit(contract, 'BatchFailed')
 
       await expect(contract.connect(user2).submitBatchResult(1, RESULT_1))
-        .to.emit(contract, 'BatchResultHashSubmitted')
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user2.address)
         .and.not.to.emit(contract, 'BatchCompleted')
         .and.not.to.emit(contract, 'BatchFailed')
 
       await expect(contract.connect(user3).submitBatchResult(1, RESULT_2))
-        .to.emit(contract, 'BatchResultHashSubmitted')
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user3.address)
         .and.to.emit(contract, 'BatchCompleted')
         .withArgs(1)
         .and.not.to.emit(contract, 'BatchFailed')
@@ -520,17 +527,20 @@ describe('RPC3', () => {
       } = await loadFixture(deployAndSubmitOneRequest)
 
       await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
-        .to.emit(contract, 'BatchResultHashSubmitted')
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user1.address)
         .and.not.to.emit(contract, 'BatchCompleted')
         .and.not.to.emit(contract, 'BatchFailed')
 
       await expect(contract.connect(user2).submitBatchResult(1, RESULT_2))
-        .to.emit(contract, 'BatchResultHashSubmitted')
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user2.address)
         .and.not.to.emit(contract, 'BatchCompleted')
         .and.not.to.emit(contract, 'BatchFailed')
 
       await expect(contract.connect(user3).submitBatchResult(1, RESULT_3))
-        .to.emit(contract, 'BatchResultHashSubmitted')
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user3.address)
         .and.to.emit(contract, 'BatchFailed')
         .withArgs(ethers.BigNumber.from(1))
         .and.not.to.emit(contract, 'BatchCompleted')
@@ -693,7 +703,9 @@ describe('RPC3', () => {
         globalParams: { consensusMaxDuration }
       } = await loadFixture(deployAndSubmitOneRequest)
 
-      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1)).to.emit(contract, 'BatchResultHashSubmitted')
+      await expect(contract.connect(user1).submitBatchResult(1, RESULT_1))
+        .to.emit(contract, 'BatchResultSubmitted')
+        .withArgs(user1.address)
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).not.to.emit(contract, 'BatchFailed')
       expect((await contract.connect(user2).getServerData()).contributions).to.equal(0)

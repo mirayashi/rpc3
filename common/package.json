@@ -10,7 +10,7 @@
   "scripts": {
     "build": "npm run copy-generated && tsc",
     "clean": "rimraf ./generated ./dist",
-    "copy-generated": "rimraf ./generated && copyfiles -EVu 3 ../sc/typechain-types/common.ts ../sc/typechain-types/contracts/RPC3.ts ../sc/typechain-types/factories/contracts/RPC3__factory.ts generated"
+    "copy-generated": "rimraf ./generated && copyfiles -EVu 3 ../sc/typechain-types/common.ts ../sc/typechain-types/contracts/RPC3/RPC3.ts ../sc/typechain-types/factories/contracts/RPC3/RPC3__factory.ts generated"
   },
   "keywords": [
     "common",

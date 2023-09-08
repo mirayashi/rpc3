@@ -1,6 +1,6 @@
 import { task } from 'hardhat/config'
 import '@nomicfoundation/hardhat-toolbox'
-import { multihash } from 'rpc3-common'
+import { multihash, utils } from 'rpc3-common'
 import '@oasisprotocol/sapphire-hardhat'
 
 const globalParamsDefault = {
@@ -80,34 +80,15 @@ task('deploy-pcu', 'Deploy the Private Computation Unit contract')
     const { address } = await contract.deployed()
     console.log(`PrivateComputationUnit deployed to ${address}`)
     if (args.test) {
-      const tx = await contract.createKey('foo')
+      const tx = await contract.createKey()
       await tx.wait()
-      console.log('Generated key foo')
-      await new Promise<void>((resolve, reject) => {
-        contract.provider.once('block', async () => {
-          try {
-            const ciphertext = await contract.encrypt(
-              owner.address,
-              'foo',
-              1,
-              Buffer.from('hello world!'),
-              Buffer.alloc(0)
-            )
-            console.log('encrypted', ciphertext)
-            console.log(
-              'decrypted',
-              Buffer.from(
-                (await contract.decrypt(owner.address, 'foo', 1, ciphertext, Buffer.alloc(0))).substring(2),
-                'hex'
-              ).toString('utf8')
-            )
-            resolve()
-          } catch (err) {
-            reject(err)
-          }
-        })
-      })
-      await contract.destroyKey('foo')
-      console.log('Destroyed key foo')
+      console.log('Created key 1')
+      await utils.nextBlock(contract.provider)
+      const ciphertext = await contract.encrypt(1, Buffer.from('hello world!'))
+      console.log('encrypted', ciphertext)
+      console.log(
+        'decrypted',
+        Buffer.from((await contract.decrypt(owner.address, 1, ciphertext)).substring(2), 'hex').toString('utf8')
+      )
     }
   })

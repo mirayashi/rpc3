@@ -9,6 +9,6 @@ export async function asyncIterableToString(input: AsyncIterable<Uint8Array>) {
   return result + decoder.decode()
 }
 
-export async function nextBlock(provider: ethers.providers.Provider) {
+export async function nextBlock(provider: ethers.providers.Provider): Promise<void> {
   return new Promise(resolve => provider.once('block', resolve))
 }
