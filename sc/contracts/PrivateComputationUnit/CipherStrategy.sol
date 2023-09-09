@@ -5,6 +5,8 @@ import {Sapphire} from "@oasisprotocol/sapphire-contracts/contracts/Sapphire.sol
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 interface CipherStrategy {
+    function randomBytes32(uint nonce) external view returns (bytes32);
+
     function encrypt(
         bytes32 secret,
         uint nonce,
@@ -18,28 +20,34 @@ interface CipherStrategy {
     ) external view returns (bytes memory);
 }
 
-contract XORStrategy is CipherStrategy {
+contract TestStrategy is CipherStrategy {
+    function randomBytes32(uint nonce) external view returns (bytes32) {
+        return
+            keccak256(bytes.concat(bytes32(block.timestamp), bytes32(nonce)));
+        // Obviously not secure but this is only used in tests
+    }
+
     function encrypt(
         bytes32 secret,
         uint nonce,
         bytes memory plaintext
-    ) external view returns (bytes memory) {
-        return this._xor(secret, nonce, plaintext);
+    ) external pure returns (bytes memory) {
+        return _xor(secret, nonce, plaintext);
     }
 
     function decrypt(
         bytes32 secret,
         uint nonce,
         bytes memory ciphertext
-    ) external view returns (bytes memory) {
-        return this._xor(secret, nonce, ciphertext);
+    ) external pure returns (bytes memory) {
+        return _xor(secret, nonce, ciphertext);
     }
 
     function _xor(
         bytes32 secret,
         uint nonce,
         bytes memory data
-    ) external pure returns (bytes memory) {
+    ) internal pure returns (bytes memory) {
         uint length = data.length;
         bytes memory result;
         assembly {
@@ -47,8 +55,9 @@ contract XORStrategy is CipherStrategy {
             mstore(0x40, add(add(result, length), 32))
             mstore(result, length)
         }
-        bytes32 key = keccak256(bytes.concat(secret, bytes32(nonce)));
+        bytes32 key = secret;
         for (uint offset; offset < length; offset += 32) {
+            key = keccak256(bytes.concat(key, bytes32(nonce)));
             bytes32 chunk;
             assembly {
                 chunk := mload(add(data, add(offset, 32)))
@@ -63,6 +72,10 @@ contract XORStrategy is CipherStrategy {
 }
 
 contract SapphireStrategy is CipherStrategy {
+    function randomBytes32(uint nonce) external view returns (bytes32) {
+        return bytes32(Sapphire.randomBytes(32, bytes.concat(bytes32(nonce))));
+    }
+
     function encrypt(
         bytes32 secret,
         uint nonce,

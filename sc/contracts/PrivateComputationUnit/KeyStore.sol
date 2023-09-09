@@ -33,25 +33,13 @@ abstract contract KeyStore {
         cipherStrategy = _cipherStrategy();
     }
 
-    function _cipherStrategy() internal virtual returns (CipherStrategy) {
-        return new SapphireStrategy();
-    }
-
     function createKey() external {
-        uint nonce = ++_nonce;
-        Key storage key = _keys[msg.sender][nonce];
-        key.secret = bytes32(
-            Sapphire.randomBytes(32, bytes.concat(bytes32(nonce)))
-        );
+        (uint nonce, ) = _newKey();
         emit KeyCreated(msg.sender, nonce, 0);
     }
 
     function createSharedKey(address[] calldata authorized) external {
-        uint nonce = ++_nonce;
-        Key storage key = _keys[msg.sender][nonce];
-        key.secret = bytes32(
-            Sapphire.randomBytes(32, bytes.concat(bytes32(nonce)))
-        );
+        (uint nonce, Key storage key) = _newKey();
         for (uint i; i < authorized.length; ++i) {
             if (authorized[i] == msg.sender) continue;
             key.authorized.add(authorized[i]);
@@ -90,6 +78,13 @@ abstract contract KeyStore {
         return key.authorized.values();
     }
 
+    function _newKey() internal returns (uint, Key storage) {
+        uint nonce = ++_nonce;
+        Key storage key = _keys[msg.sender][nonce];
+        key.secret = cipherStrategy.randomBytes32(nonce);
+        return (nonce, key);
+    }
+
     function _checkKeyExists(address owner, uint nonce) internal view {
         if (_keys[owner][nonce].secret == bytes32(0)) {
             revert KeyNotFound();
@@ -112,5 +107,9 @@ abstract contract KeyStore {
     ) internal view returns (bytes memory) {
         Key storage key = _keys[owner][nonce];
         return cipherStrategy.decrypt(key.secret, nonce, ciphertext);
+    }
+
+    function _cipherStrategy() internal virtual returns (CipherStrategy) {
+        return new SapphireStrategy();
     }
 }

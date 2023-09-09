@@ -1,6 +1,6 @@
 import { task } from 'hardhat/config'
 import '@nomicfoundation/hardhat-toolbox'
-import { multihash, utils } from 'rpc3-common'
+import { multihash } from 'rpc3-common'
 import '@oasisprotocol/sapphire-hardhat'
 
 const globalParamsDefault = {
@@ -70,25 +70,10 @@ task('deploy', 'Deploy the contract')
     console.log(`RPC3 deployed to ${address}`)
   })
 
-task('deploy-pcu', 'Deploy the Private Computation Unit contract')
-  .addFlag('test', 'Test basic encryption / decryption after deploy')
-  .setAction(async (args, hre) => {
-    const ethers = hre.ethers
-    const PrivateComputationUnit = await ethers.getContractFactory('PrivateComputationUnit')
-    const contract = await PrivateComputationUnit.deploy()
-    const [owner] = await ethers.getSigners()
-    const { address } = await contract.deployed()
-    console.log(`PrivateComputationUnit deployed to ${address}`)
-    if (args.test) {
-      const tx = await contract.createKey()
-      await tx.wait()
-      console.log('Created key 1')
-      await utils.nextBlock(contract.provider)
-      const ciphertext = await contract.encrypt(1, Buffer.from('hello world!'))
-      console.log('encrypted', ciphertext)
-      console.log(
-        'decrypted',
-        Buffer.from((await contract.decrypt(owner.address, 1, ciphertext)).substring(2), 'hex').toString('utf8')
-      )
-    }
-  })
+task('deploy-pcu', 'Deploy the Private Computation Unit contract').setAction(async (_args, hre) => {
+  const ethers = hre.ethers
+  const PrivateComputationUnit = await ethers.getContractFactory('PrivateComputationUnit')
+  const contract = await PrivateComputationUnit.deploy()
+  const { address } = await contract.deployed()
+  console.log(`PrivateComputationUnit deployed to ${address}`)
+})

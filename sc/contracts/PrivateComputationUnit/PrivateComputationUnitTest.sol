@@ -9,6 +9,6 @@ import "./CipherStrategy.sol";
  */
 contract PrivateComputationUnitTest is PrivateComputationUnit {
     function _cipherStrategy() internal override returns (CipherStrategy) {
-        return new XORStrategy();
+        return new TestStrategy();
     }
 }
