@@ -15,6 +15,12 @@ abstract contract KeyStore {
         EnumerableSet.AddressSet authorized;
     }
 
+    struct Decrypted {
+        address keyOwner;
+        uint keyNonce;
+        bytes plaintext;
+    }
+
     CipherStrategy cipherStrategy;
     uint private _nonce;
     mapping(address => mapping(uint => Key)) private _keys;
@@ -55,19 +61,21 @@ abstract contract KeyStore {
         uint nonce,
         bytes calldata plaintext
     ) external view checkKeyExists(msg.sender, nonce) returns (bytes memory) {
-        return _encryptUnchecked(msg.sender, nonce, plaintext);
+        return _encrypt(msg.sender, nonce, plaintext);
     }
 
     function decrypt(
-        address keyOwner,
-        uint nonce,
         bytes calldata ciphertext
-    ) external view checkKeyExists(keyOwner, nonce) returns (bytes memory) {
-        Key storage key = _keys[keyOwner][nonce];
-        if (keyOwner != msg.sender && !key.authorized.contains(msg.sender)) {
+    ) external view returns (bytes memory) {
+        Decrypted memory decrypted = _decrypt(ciphertext);
+        Key storage key = _keys[decrypted.keyOwner][decrypted.keyNonce];
+        if (
+            decrypted.keyOwner != msg.sender &&
+            !key.authorized.contains(msg.sender)
+        ) {
             revert KeyUnauthorized();
         }
-        return _decryptUnchecked(keyOwner, nonce, ciphertext);
+        return decrypted.plaintext;
     }
 
     function getAuthorizedAddresses(
@@ -76,6 +84,40 @@ abstract contract KeyStore {
     ) external view checkKeyExists(keyOwner, nonce) returns (address[] memory) {
         Key storage key = _keys[keyOwner][nonce];
         return key.authorized.values();
+    }
+
+    // ----------------------
+    //       Internals
+    // ----------------------
+
+    function _encrypt(
+        address owner,
+        uint nonce,
+        bytes memory plaintext
+    ) internal view returns (bytes memory) {
+        Key storage key = _keys[owner][nonce];
+        bytes memory ciphertext = cipherStrategy.encrypt(
+            key.secret,
+            nonce,
+            plaintext
+        );
+        return bytes.concat(bytes20(owner), bytes32(nonce), ciphertext);
+    }
+
+    function _decrypt(
+        bytes calldata ciphertext
+    ) internal view returns (Decrypted memory) {
+        require(ciphertext.length >= 52);
+        address keyOwner = address(bytes20(ciphertext[:20]));
+        uint keyNonce = uint(bytes32(ciphertext[20:52]));
+        _checkKeyExists(keyOwner, keyNonce);
+        Key storage key = _keys[keyOwner][keyNonce];
+        bytes memory plaintext = cipherStrategy.decrypt(
+            key.secret,
+            keyNonce,
+            ciphertext[52:]
+        );
+        return Decrypted(keyOwner, keyNonce, plaintext);
     }
 
     function _newKey() internal returns (uint, Key storage) {
@@ -89,24 +131,6 @@ abstract contract KeyStore {
         if (_keys[owner][nonce].secret == bytes32(0)) {
             revert KeyNotFound();
         }
-    }
-
-    function _encryptUnchecked(
-        address owner,
-        uint nonce,
-        bytes memory plaintext
-    ) internal view returns (bytes memory) {
-        Key storage key = _keys[owner][nonce];
-        return cipherStrategy.encrypt(key.secret, nonce, plaintext);
-    }
-
-    function _decryptUnchecked(
-        address owner,
-        uint nonce,
-        bytes memory ciphertext
-    ) internal view returns (bytes memory) {
-        Key storage key = _keys[owner][nonce];
-        return cipherStrategy.decrypt(key.secret, nonce, ciphertext);
     }
 
     function _cipherStrategy() internal virtual returns (CipherStrategy) {

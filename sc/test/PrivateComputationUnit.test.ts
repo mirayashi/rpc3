@@ -62,7 +62,7 @@ describe('PrivateComputationUnit', () => {
       const functions = [
         contract.getAuthorizedAddresses(owner.address, 1),
         contract.encrypt(1, Buffer.from('lol')),
-        contract.decrypt(owner.address, 1, Buffer.from('lol'))
+        contract.decrypt(Buffer.concat([utils.hexString2Buf(owner.address), utils.bigInt2Buf32(1n)]))
       ]
 
       for (const f of functions) {
@@ -75,20 +75,18 @@ describe('PrivateComputationUnit', () => {
     it('Should encrypt and decrypt a message with a simple key', async () => {
       const {
         contract,
-        owner,
         users: [user1],
         keyNonce
       } = await loadFixture(deployPCUAndCreateKeys)
       const plaintext = 'Hello world!'
       const ciphertext = utils.hexString2Buf(await contract.encrypt(keyNonce, Buffer.from(plaintext)))
-      expect(ciphertext.toString('hex')).not.to.equal(Buffer.from(plaintext).toString('hex'))
 
       // Owner should be able to decrypt
-      const backToPlaintext = utils.hexString2Buf(await contract.decrypt(owner.address, keyNonce, ciphertext))
+      const backToPlaintext = utils.hexString2Buf(await contract.decrypt(ciphertext))
       expect(backToPlaintext.toString('utf8')).to.equal(plaintext)
 
       // Other users should NOT be able to decrypt
-      await expect(contract.connect(user1).decrypt(owner.address, keyNonce, ciphertext)).to.be.revertedWithCustomError(
+      await expect(contract.connect(user1).decrypt(ciphertext)).to.be.revertedWithCustomError(
         contract,
         'KeyUnauthorized'
       )
@@ -96,59 +94,42 @@ describe('PrivateComputationUnit', () => {
     it('Should encrypt and decrypt a message with a shared key', async () => {
       const {
         contract,
-        owner,
         users: [user1, user2],
         sharedKeyNonce
       } = await loadFixture(deployPCUAndCreateKeys)
       const plaintext = 'Hello shared world!'
       const ciphertext = utils.hexString2Buf(await contract.encrypt(sharedKeyNonce, Buffer.from(plaintext)))
-      expect(ciphertext.toString('hex')).not.to.equal(Buffer.from(plaintext).toString('hex'))
 
       // Owner should be able to decrypt
-      const backToPlaintextOwner = utils.hexString2Buf(
-        await contract.decrypt(owner.address, sharedKeyNonce, ciphertext)
-      )
+      const backToPlaintextOwner = utils.hexString2Buf(await contract.decrypt(ciphertext))
       expect(backToPlaintextOwner.toString('utf8')).to.equal(plaintext)
 
       // user1 should be able to decrypt
-      const backToPlaintextUser1 = utils.hexString2Buf(
-        await contract.connect(user1).decrypt(owner.address, sharedKeyNonce, ciphertext)
-      )
+      const backToPlaintextUser1 = utils.hexString2Buf(await contract.connect(user1).decrypt(ciphertext))
       expect(backToPlaintextUser1.toString('utf8')).to.equal(plaintext)
 
       // user2 should NOT be able to decrypt
-      await expect(
-        contract.connect(user2).decrypt(owner.address, sharedKeyNonce, ciphertext)
-      ).to.be.revertedWithCustomError(contract, 'KeyUnauthorized')
+      await expect(contract.connect(user2).decrypt(ciphertext)).to.be.revertedWithCustomError(
+        contract,
+        'KeyUnauthorized'
+      )
     })
   })
 
   describe('incrementCounter()', () => {
     it('Should increment the counter', async () => {
-      const { contract, owner, keyNonce } = await loadFixture(deployPCUAndCreateKeys)
-
-      const keyPrefixBuf = Buffer.alloc(52)
-      utils.hexString2Buf(owner.address).copy(keyPrefixBuf)
-      utils.bigInt2Buf32(keyNonce.toBigInt()).copy(keyPrefixBuf, 20)
+      const { contract, keyNonce } = await loadFixture(deployPCUAndCreateKeys)
 
       const counter = 1000n
       const increment = 123n
 
-      const counterCiphertext = Buffer.concat([
-        keyPrefixBuf,
-        utils.hexString2Buf(await contract.encrypt(keyNonce, utils.bigInt2Buf32(counter)))
-      ])
-      const incrementCiphertext = Buffer.concat([
-        keyPrefixBuf,
-        utils.hexString2Buf(await contract.encrypt(keyNonce, utils.bigInt2Buf32(increment)))
-      ])
+      const counterCiphertext = utils.hexString2Buf(await contract.encrypt(keyNonce, utils.bigInt2Buf32(counter)))
+      const incrementCiphertext = utils.hexString2Buf(await contract.encrypt(keyNonce, utils.bigInt2Buf32(increment)))
 
-      const resultCiphertext = utils
-        .hexString2Buf(await contract.incrementCounter(counterCiphertext, incrementCiphertext))
-        .subarray(52)
-      const result = utils.buf322BigInt(
-        utils.hexString2Buf(await contract.decrypt(owner.address, keyNonce, resultCiphertext))
+      const resultCiphertext = utils.hexString2Buf(
+        await contract.incrementCounter(counterCiphertext, incrementCiphertext)
       )
+      const result = utils.buf322BigInt(utils.hexString2Buf(await contract.decrypt(resultCiphertext)))
       expect(result).to.equal(1123n)
     })
   })
