@@ -1,10 +1,11 @@
 import { expect } from 'chai'
-import { Contract } from 'ethers'
-import { RequestStruct } from '../typechain-types/contracts/RPC3'
+import { RPC3, RequestStruct } from '../typechain-types/contracts/RPC3/RPC3'
 import { Multihash } from 'rpc3-common'
+import { TypedDataSigner, WithPermit } from './utils'
 
 async function expectThatCurrentBatchHas(
-  contract: Contract,
+  contract: RPC3,
+  caller: WithPermit<TypedDataSigner>,
   {
     nonce,
     stateCid,
@@ -19,7 +20,7 @@ async function expectThatCurrentBatchHas(
     expiresAt?: number
   }
 ) {
-  const batchView = await contract.getCurrentBatch(0)
+  const batchView = await contract.connect(caller).getCurrentBatch(caller.permit, 0)
   if (nonce) {
     expect(batchView.nonce).to.equal(nonce)
   }

@@ -1,11 +1,14 @@
 import { ethers } from 'hardhat'
 import type { BigNumber } from 'ethers'
+import { attachPermitForEach } from '../src/utils'
 
 export async function deployPCU() {
-  const [owner, ...users] = await ethers.getSigners()
+  const signers = await ethers.getSigners()
 
   const PCU = await ethers.getContractFactory('PrivateComputationUnitTest')
   const contract = await PCU.deploy()
+
+  const [owner, ...users] = await attachPermitForEach(contract, signers.slice(0, 3))
 
   return { contract, owner, users }
 }

@@ -33,7 +33,7 @@ export default class RPC3Server {
   }
 
   async ensureIsRegistered() {
-    const registered = await this._contract.amIRegistered()
+    const registered = await this._contract.isRegistered()
     if (!registered) {
       const tx = await this._contract.serverRegister({ value: await this._contract.getStakeRequirement() })
       console.log('register tx', await tx.wait())

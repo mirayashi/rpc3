@@ -1,13 +1,13 @@
 import { ethers } from 'hardhat'
 import { RESULT_1, RESULT_2 } from '../src/batchResult'
 import { multihash } from 'rpc3-common'
-import { registerManyServers, skipBatchesUntilInactive } from '../src/utils'
+import { attachPermitForEach, createPermit, registerManyServers, skipBatchesUntilInactive } from '../src/utils'
 
 export async function deploy(globalParamsOverrides?: object) {
   // Contracts are deployed using the first signer/account by default
-  const [owner, ...users] = await ethers.getSigners()
+  const signers = await ethers.getSigners()
 
-  const RPC3 = await ethers.getContractFactory('RPC3')
+  const RPC3 = await ethers.getContractFactory('RPC3Test')
   const globalParams = {
     minStake: ethers.utils.parseEther('1'),
     consensusMaxDuration: ethers.BigNumber.from(60),
@@ -25,6 +25,8 @@ export async function deploy(globalParamsOverrides?: object) {
   }
   const stateCid = multihash.parse('QmWBaeu6y1zEcKbsEqCuhuDHPL3W8pZouCPdafMCRCSUWk')
   const contract = await RPC3.deploy(globalParams, stateCid)
+
+  const [owner, ...users] = await attachPermitForEach(contract, signers.slice(0, 5))
 
   return { contract, globalParams, stateCid, owner, users }
 }
@@ -78,6 +80,7 @@ export async function deployAndMake220UsersHousekeepable(globalParamsOverrides?:
   const fixture = await deploy(globalParamsOverrides)
   const {
     contract,
+    owner,
     globalParams: { inactivityThreshold, consensusMaxDuration }
   } = fixture
   const wallets = await registerManyServers(contract, 220)
@@ -87,5 +90,7 @@ export async function deployAndMake220UsersHousekeepable(globalParamsOverrides?:
     consensusMaxDuration.toNumber(),
     wallets[219]
   )
+  // We need to regenerate owner's permit as it has likely expired
+  owner.permit = await createPermit(contract, owner)
   return fixture
 }

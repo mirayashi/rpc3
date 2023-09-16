@@ -92,3 +92,15 @@ contract SapphireStrategy is CipherStrategy {
         return Sapphire.decrypt(secret, bytes32(nonce << 17), ciphertext, "");
     }
 }
+
+abstract contract CipherEnabled {
+    CipherStrategy immutable cipherStrategy;
+
+    constructor() {
+        cipherStrategy = _cipherStrategy();
+    }
+
+    function _cipherStrategy() internal virtual returns (CipherStrategy) {
+        return new SapphireStrategy();
+    }
+}

@@ -1,4 +1,4 @@
-import { ethers } from 'ethers'
+import { type TypedDataDomain, ethers } from 'ethers'
 
 export async function asyncIterableToString(input: AsyncIterable<Uint8Array>) {
   const decoder = new TextDecoder('utf8')
@@ -29,4 +29,10 @@ export function bigInt2Buf32(n: bigint): Buffer {
 
 export function buf322BigInt(buf: Uint8Array): bigint {
   return Buffer.from(buf).reverse().readBigUInt64LE()
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function toTypedDataDomain(input: Record<string, any>): TypedDataDomain {
+  const { name, version, chainId, verifyingContract } = input
+  return { name, version, chainId, verifyingContract }
 }

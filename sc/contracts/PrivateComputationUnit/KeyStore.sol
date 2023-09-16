@@ -5,9 +5,9 @@ import {Sapphire} from "@oasisprotocol/sapphire-contracts/contracts/Sapphire.sol
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import "./CipherStrategy.sol";
+import {SignedPermitChecker} from "../common/SignedPermitChecker.sol";
 
-abstract contract KeyStore {
+abstract contract KeyStore is SignedPermitChecker {
     using EnumerableSet for EnumerableSet.AddressSet;
 
     struct Key {
@@ -21,7 +21,6 @@ abstract contract KeyStore {
         bytes plaintext;
     }
 
-    CipherStrategy cipherStrategy;
     uint private _nonce;
     mapping(address => mapping(uint => Key)) private _keys;
 
@@ -34,10 +33,6 @@ abstract contract KeyStore {
 
     error KeyNotFound();
     error KeyUnauthorized();
-
-    constructor() {
-        cipherStrategy = _cipherStrategy();
-    }
 
     function createKey() external {
         (uint nonce, ) = _newKey();
@@ -57,16 +52,32 @@ abstract contract KeyStore {
         return _keys[owner][nonce].secret != bytes32(0);
     }
 
+    function getAuthorizedAddresses(
+        address keyOwner,
+        uint nonce
+    ) external view checkKeyExists(keyOwner, nonce) returns (address[] memory) {
+        Key storage key = _keys[keyOwner][nonce];
+        return key.authorized.values();
+    }
+
     function encrypt(
+        SignedPermit calldata sp,
         uint nonce,
         bytes calldata plaintext
-    ) external view checkKeyExists(msg.sender, nonce) returns (bytes memory) {
+    )
+        external
+        view
+        checkKeyExists(msg.sender, nonce)
+        onlyPermitted(sp)
+        returns (bytes memory)
+    {
         return _encrypt(msg.sender, nonce, plaintext);
     }
 
     function decrypt(
+        SignedPermit calldata sp,
         bytes calldata ciphertext
-    ) external view returns (bytes memory) {
+    ) external view onlyPermitted(sp) returns (bytes memory) {
         Decrypted memory decrypted = _decrypt(ciphertext);
         Key storage key = _keys[decrypted.keyOwner][decrypted.keyNonce];
         if (
@@ -76,14 +87,6 @@ abstract contract KeyStore {
             revert KeyUnauthorized();
         }
         return decrypted.plaintext;
-    }
-
-    function getAuthorizedAddresses(
-        address keyOwner,
-        uint nonce
-    ) external view checkKeyExists(keyOwner, nonce) returns (address[] memory) {
-        Key storage key = _keys[keyOwner][nonce];
-        return key.authorized.values();
     }
 
     // ----------------------
@@ -131,9 +134,5 @@ abstract contract KeyStore {
         if (_keys[owner][nonce].secret == bytes32(0)) {
             revert KeyNotFound();
         }
-    }
-
-    function _cipherStrategy() internal virtual returns (CipherStrategy) {
-        return new SapphireStrategy();
     }
 }

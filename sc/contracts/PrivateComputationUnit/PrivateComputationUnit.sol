@@ -5,9 +5,10 @@ import {KeyStore} from "./KeyStore.sol";
 
 contract PrivateComputationUnit is KeyStore {
     function incrementCounter(
+        SignedPermit calldata sp,
         bytes calldata counterCiphertext,
         bytes calldata incrementCiphertext
-    ) external view returns (bytes memory) {
+    ) external view onlyPermitted(sp) returns (bytes memory) {
         Decrypted memory counterDecrypted = _decrypt(counterCiphertext);
         Decrypted memory incrementDecrypted = _decrypt(incrementCiphertext);
         uint counter = uint(bytes32(counterDecrypted.plaintext));

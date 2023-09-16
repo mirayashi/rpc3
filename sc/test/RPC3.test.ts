@@ -14,7 +14,14 @@ import {
   deployAndRegisterOwner,
   deployAndSubmitOneRequest
 } from '../src/fixtures'
-import { registerManyServers, skipBatchesUntilInactive, toStruct } from '../src/utils'
+import {
+  TypedDataSigner,
+  WithPermit,
+  createPermit,
+  registerManyServers,
+  skipBatchesUntilInactive,
+  toStruct
+} from '../src/utils'
 
 describe('RPC3', () => {
   describe('Deployment', () => {
@@ -133,12 +140,12 @@ describe('RPC3', () => {
   describe('Server registration', () => {
     it('Should register server', async () => {
       const { contract, owner, globalParams } = await loadFixture(deploy)
-      expect(await contract.amIRegistered()).to.be.false
+      expect(await contract.isRegistered(owner.address)).to.be.false
       await expect(contract.serverRegister({ value: ethers.utils.parseEther('1') }))
         .to.emit(contract, 'ServerRegistered')
         .withArgs(owner.address)
-      expect(await contract.amIRegistered()).to.be.true
-      expect(await contract.getServerData()).to.deep.equal(
+      expect(await contract.isRegistered(owner.address)).to.be.true
+      expect(await contract.getServerData(owner.permit)).to.deep.equal(
         toStruct({
           addr: owner.address,
           stake: globalParams.minStake,
@@ -177,11 +184,11 @@ describe('RPC3', () => {
     })
 
     it('Should not register server, below minimum stake', async () => {
-      const { contract } = await loadFixture(deploy)
+      const { contract, owner } = await loadFixture(deploy)
       await expect(contract.serverRegister({ value: ethers.utils.parseEther('0.5') }))
         .to.be.revertedWithCustomError(contract, 'InsufficientStake')
         .withArgs(ethers.utils.parseEther('1'))
-      expect(await contract.amIRegistered()).to.be.false
+      expect(await contract.isRegistered(owner.address)).to.be.false
     })
 
     it('Should not register server, stake requirement has been doubled', async () => {
@@ -192,7 +199,7 @@ describe('RPC3', () => {
       await expect(
         contract.connect(user1).serverRegister({ value: ethers.utils.parseEther('1') })
       ).to.be.revertedWithCustomError(contract, 'InsufficientStake')
-      expect(await contract.connect(user1).amIRegistered()).to.be.false
+      expect(await contract.isRegistered(user1.address)).to.be.false
     })
 
     it('Should unregister server, with a fee that go to treasury', async () => {
@@ -202,8 +209,8 @@ describe('RPC3', () => {
         .withArgs(owner.address)
         .and.to.emit(contract, 'AddedToTreasury')
         .withArgs(ethers.utils.parseEther('0.02'), 0)
-      expect(await contract.amIRegistered()).to.be.false
-      await expect(contract.getServerData()).to.be.revertedWithCustomError(contract, 'ServerNotRegistered')
+      expect(await contract.isRegistered(owner.address)).to.be.false
+      await expect(contract.getServerData(owner.permit)).to.be.revertedWithCustomError(contract, 'ServerNotRegistered')
       expect(await contract.payments(owner.address)).to.equal(ethers.utils.parseEther('0.98'))
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther('0.02')) // Slashed amount go to treasury
     })
@@ -299,6 +306,7 @@ describe('RPC3', () => {
     it('Should initialize first batch', async () => {
       const {
         contract,
+        owner,
         users: [user1],
         stateCid,
         globalParams: { consensusMaxDuration }
@@ -306,7 +314,7 @@ describe('RPC3', () => {
       await expect(contract.connect(user1).sendRequest(multihash.generate('request1')))
         .to.emit(contract, 'NextBatchReady')
         .withArgs(1)
-      await expectThatCurrentBatchHas(contract, {
+      await expectThatCurrentBatchHas(contract, owner, {
         nonce: 1,
         stateCid,
         sizeOf: 1,
@@ -330,7 +338,7 @@ describe('RPC3', () => {
 
       await contract.sendRequest(multihash.generate('request2'))
       // request2 should be only in queue, not in batch
-      await expectThatCurrentBatchHas(contract.connect(user1), {
+      await expectThatCurrentBatchHas(contract, user1, {
         stateCid,
         sizeOf: 1,
         requests: [
@@ -351,13 +359,13 @@ describe('RPC3', () => {
       } = await loadFixture(deployAndRegisterOwner)
 
       const functions = [
-        contract.connect(user1).getCurrentBatch(0),
+        contract.connect(user1).getCurrentBatch(user1.permit, 0),
         contract.connect(user1).submitBatchResult(1, RESULT_1),
-        contract.connect(user1).getServerData(),
+        contract.connect(user1).getServerData(user1.permit),
         contract.connect(user1).skipBatchIfConsensusExpired(),
-        contract.connect(user1).getInactiveServers(0),
+        contract.connect(user1).getInactiveServers(user1.permit, 0),
         contract.connect(user1).housekeepInactive([]),
-        contract.connect(user1).estimateClaimableRewards(),
+        contract.connect(user1).estimateClaimableRewards(user1.permit),
         contract.connect(user1).claimRewards(),
         contract.connect(user1).applyPendingContribution()
       ]
@@ -368,8 +376,8 @@ describe('RPC3', () => {
     })
 
     it('Should revert if current batch is empty', async () => {
-      const { contract } = await loadFixture(deployAndRegisterOwner)
-      await expect(contract.getCurrentBatch(0)).to.be.revertedWithCustomError(contract, 'EmptyBatch')
+      const { contract, owner } = await loadFixture(deployAndRegisterOwner)
+      await expect(contract.getCurrentBatch(owner.permit, 0)).to.be.revertedWithCustomError(contract, 'EmptyBatch')
     })
 
     it('Should revert if nonce is invalid', async () => {
@@ -442,19 +450,19 @@ describe('RPC3', () => {
         .to.emit(contract, 'NextBatchReady')
         .withArgs(2)
 
-      const firstPage = await contract.connect(user1).getCurrentBatch(0)
+      const firstPage = await contract.connect(user1).getCurrentBatch(user1.permit, 0)
       expect(firstPage.nonce).to.equal(2)
       expect(firstPage.page).to.equal(0)
       expect(firstPage.maxPage).to.equal(1)
       expect(firstPage.requests).to.have.lengthOf(1000)
 
-      const secondPage = await contract.connect(user1).getCurrentBatch(1)
+      const secondPage = await contract.connect(user1).getCurrentBatch(user1.permit, 1)
       expect(secondPage.nonce).to.equal(2)
       expect(secondPage.page).to.equal(1)
       expect(secondPage.maxPage).to.equal(1)
       expect(secondPage.requests).to.have.lengthOf(440)
 
-      await expect(contract.connect(user1).getCurrentBatch(2))
+      await expect(contract.connect(user1).getCurrentBatch(user1.permit, 2))
         .to.be.revertedWithCustomError(contract, 'MaxPageExceeded')
         .withArgs(1)
     })
@@ -491,7 +499,7 @@ describe('RPC3', () => {
 
       expect(await contract.getStateCid()).to.deep.equal(toStruct(RESULT_1.finalStateCid))
 
-      expect(await contract.connect(user1).getServerData()).to.deep.equal(
+      expect(await contract.connect(user1).getServerData(user1.permit)).to.deep.equal(
         toStruct({
           addr: user1.address,
           stake: ethers.utils.parseEther('1'),
@@ -500,7 +508,7 @@ describe('RPC3', () => {
           nextHousekeepAt: inactivityThreshold
         })
       )
-      expect(await contract.connect(user2).getServerData()).to.deep.equal(
+      expect(await contract.connect(user2).getServerData(user2.permit)).to.deep.equal(
         toStruct({
           addr: user2.address,
           stake: ethers.utils.parseEther('2'),
@@ -509,7 +517,7 @@ describe('RPC3', () => {
           nextHousekeepAt: inactivityThreshold.mul(2)
         })
       )
-      expect(await contract.connect(user3).getServerData()).to.deep.equal(
+      expect(await contract.connect(user3).getServerData(user3.permit)).to.deep.equal(
         toStruct({
           addr: user3.address,
           stake: ethers.utils.parseEther('4'),
@@ -581,7 +589,10 @@ describe('RPC3', () => {
         users: [user1]
       } = await loadFixture(deployAndReachConsensus)
 
-      await expect(contract.connect(user1).getCurrentBatch(0)).to.be.revertedWithCustomError(contract, 'EmptyBatch')
+      await expect(contract.connect(user1).getCurrentBatch(user1.permit, 0)).to.be.revertedWithCustomError(
+        contract,
+        'EmptyBatch'
+      )
     })
 
     it('Should next batch contain request2', async () => {
@@ -600,7 +611,7 @@ describe('RPC3', () => {
         .to.emit(contract, 'NextBatchReady')
         .withArgs(2)
 
-      await expectThatCurrentBatchHas(contract.connect(user1), {
+      await expectThatCurrentBatchHas(contract, user1, {
         nonce: 2,
         stateCid: RESULT_1.finalStateCid,
         sizeOf: 1,
@@ -617,14 +628,20 @@ describe('RPC3', () => {
 
   describe('Response reading', () => {
     it('Should revert if nonce is invalid', async () => {
-      const { contract } = await loadFixture(deployAndSubmitOneRequest)
-      await expect(contract.getResponse(42)).to.be.revertedWithCustomError(contract, 'InvalidRequestNonce')
+      const { contract, owner } = await loadFixture(deployAndSubmitOneRequest)
+      await expect(contract.getResponse(owner.permit, 42)).to.be.revertedWithCustomError(
+        contract,
+        'InvalidRequestNonce'
+      )
     })
 
     it('Should revert if response is not available', async () => {
-      const { contract } = await loadFixture(deployAndSubmitOneRequest)
+      const { contract, owner } = await loadFixture(deployAndSubmitOneRequest)
       // At this point the request is submitted but the batch in which it's included did not reach consensus yet
-      await expect(contract.getResponse(0)).to.be.revertedWithCustomError(contract, 'ResponseNotAvailable')
+      await expect(contract.getResponse(owner.permit, 0)).to.be.revertedWithCustomError(
+        contract,
+        'ResponseNotAvailable'
+      )
     })
 
     it('Should revert if caller is not the original sender of the request', async () => {
@@ -632,20 +649,21 @@ describe('RPC3', () => {
         contract,
         users: [user1]
       } = await loadFixture(deployAndReachConsensus)
-      await expect(contract.connect(user1).getResponse(0)).to.be.revertedWithCustomError(
+      await expect(contract.connect(user1).getResponse(user1.permit, 0)).to.be.revertedWithCustomError(
         contract,
         'RequestAuthorMismatch'
       )
     })
 
     it('Should read correct response when batch has one request', async () => {
-      const { contract } = await loadFixture(deployAndReachConsensus)
-      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseCid), 0])
+      const { contract, owner } = await loadFixture(deployAndReachConsensus)
+      expect(await contract.getResponse(owner.permit, 0)).to.deep.equal([toStruct(RESULT_1.responseCid), 0])
     })
 
     it('Should read correct response when request is queued for a future batch', async () => {
       const {
         contract,
+        owner,
         users: [user1, user2, user3]
       } = await deployAndRegister4Users({ maxBatchSize: 3 })
 
@@ -687,11 +705,11 @@ describe('RPC3', () => {
         .to.emit(contract, 'BatchCompleted')
         .withArgs(3)
 
-      expect(await contract.getResponse(0)).to.deep.equal([toStruct(RESULT_1.responseCid), 0])
-      expect(await contract.getResponse(1)).to.deep.equal([toStruct(RESULT_2.responseCid), 0])
-      expect(await contract.getResponse(2)).to.deep.equal([toStruct(RESULT_2.responseCid), 1])
-      expect(await contract.getResponse(3)).to.deep.equal([toStruct(RESULT_2.responseCid), 2])
-      expect(await contract.getResponse(4)).to.deep.equal([toStruct(RESULT_3.responseCid), 0])
+      expect(await contract.getResponse(owner.permit, 0)).to.deep.equal([toStruct(RESULT_1.responseCid), 0])
+      expect(await contract.getResponse(owner.permit, 1)).to.deep.equal([toStruct(RESULT_2.responseCid), 0])
+      expect(await contract.getResponse(owner.permit, 2)).to.deep.equal([toStruct(RESULT_2.responseCid), 1])
+      expect(await contract.getResponse(owner.permit, 3)).to.deep.equal([toStruct(RESULT_2.responseCid), 2])
+      expect(await contract.getResponse(owner.permit, 4)).to.deep.equal([toStruct(RESULT_3.responseCid), 0])
     })
   })
 
@@ -708,35 +726,38 @@ describe('RPC3', () => {
         .withArgs(user1.address)
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).not.to.emit(contract, 'BatchFailed')
-      expect((await contract.connect(user2).getServerData()).contributions).to.equal(0)
+      expect((await contract.connect(user2).getServerData(user2.permit)).contributions).to.equal(0)
 
       await time.increase(consensusMaxDuration)
 
       await expect(contract.connect(user2).skipBatchIfConsensusExpired()).to.emit(contract, 'BatchFailed')
-      expect((await contract.connect(user2).getServerData()).contributions).to.equal(1)
+      expect((await contract.connect(user2).getServerData(user2.permit)).contributions).to.equal(1)
     })
 
     it('Should revert if housekeep is on cooldown', async () => {
-      const { contract } = await loadFixture(deployAndRegisterOwner)
-      await expect(contract.getInactiveServers(0)).to.be.revertedWithCustomError(contract, 'HousekeepCooldown')
+      const { contract, owner } = await loadFixture(deployAndRegisterOwner)
+      await expect(contract.getInactiveServers(owner.permit, 0)).to.be.revertedWithCustomError(
+        contract,
+        'HousekeepCooldown'
+      )
       await expect(contract.housekeepInactive([])).to.be.revertedWithCustomError(contract, 'HousekeepCooldown')
     })
 
     it('Should handle multiple pages of inactive servers', async () => {
       // Note: number of pages depends on the number of servers registered, not the number of servers actually inactive
       // so we might get 0 elements in first page and some elements in second page
-      const { contract } = await loadFixture(deployAndMake220UsersHousekeepable)
-      const [addresses0, maxPage0] = await contract.getInactiveServers(0)
+      const { contract, owner } = await loadFixture(deployAndMake220UsersHousekeepable)
+      const [addresses0, maxPage0] = await contract.getInactiveServers(owner.permit, 0)
       expect(addresses0).to.have.lengthOf(10) // results capped to 10
       expect(maxPage0).to.equal(1)
 
-      const [addresses1, maxPage1] = await contract.getInactiveServers(1)
+      const [addresses1, maxPage1] = await contract.getInactiveServers(owner.permit, 1)
       expect(addresses1).to.have.lengthOf(10)
       expect(maxPage1).to.equal(1)
       // Check that addresses0 and addresses1 have nothing in common
       expect([...new Set(addresses0.concat(addresses1))]).to.have.lengthOf(20)
 
-      await expect(contract.getInactiveServers(2))
+      await expect(contract.getInactiveServers(owner.permit, 2))
         .to.be.revertedWithCustomError(contract, 'MaxPageExceeded')
         .withArgs(1)
     })
@@ -744,10 +765,11 @@ describe('RPC3', () => {
     it('Should not housekeep more than 10 addresses at once', async () => {
       const {
         contract,
+        owner,
         globalParams: { inactivityThreshold }
       } = await loadFixture(deployAndMake220UsersHousekeepable)
-      const [addresses0] = await contract.getInactiveServers(0)
-      const [addresses1] = await contract.getInactiveServers(1)
+      const [addresses0] = await contract.getInactiveServers(owner.permit, 0)
+      const [addresses1] = await contract.getInactiveServers(owner.permit, 1)
       const serverCount = await contract.getServerCount()
       const expectedServerCountAfter = serverCount.sub(10)
       await expect(contract.housekeepInactive(addresses0.concat(addresses1)))
@@ -769,7 +791,7 @@ describe('RPC3', () => {
         user1
       )
       await expect(contract.connect(user2).housekeepInactive([])).to.emit(contract, 'HousekeepSuccess')
-      expect((await contract.connect(user2).getServerData()).contributions).to.equal(housekeepBaseReward)
+      expect((await contract.connect(user2).getServerData(user2.permit)).contributions).to.equal(housekeepBaseReward)
     })
 
     it('Should emit HousekeepSuccess but should not unregister the caller', async () => {
@@ -788,7 +810,7 @@ describe('RPC3', () => {
       await expect(contract.connect(user2).housekeepInactive([user2.address]))
         .to.emit(contract, 'HousekeepSuccess')
         .and.not.to.emit(contract, 'ServerUnregistered')
-      expect((await contract.connect(user2).getServerData()).contributions).to.equal(housekeepBaseReward)
+      expect((await contract.connect(user2).getServerData(user2.permit)).contributions).to.equal(housekeepBaseReward)
     })
 
     it('Should emit HousekeepSuccess and unregister user4', async () => {
@@ -806,12 +828,15 @@ describe('RPC3', () => {
         consensusMaxDuration.toNumber(),
         user1
       )
+
       const batchNonce = await contract.getCurrentBatchNonce()
       await contract.connect(user1).submitBatchResult(batchNonce, RESULT_2)
       await contract.connect(user2).submitBatchResult(batchNonce, RESULT_2)
       await contract.connect(user3).submitBatchResult(batchNonce, RESULT_2)
 
-      expect(await contract.connect(user1).getInactiveServers(0)).to.deep.equal([[user4.address], 0])
+      // Permit has expired because of skipBatchesUntilInactive
+      user1.permit = await createPermit(contract, user1)
+      expect(await contract.connect(user1).getInactiveServers(user1.permit, 0)).to.deep.equal([[user4.address], 0])
 
       await expect(contract.connect(user1).housekeepInactive([user4.address]))
         .to.emit(contract, 'HousekeepSuccess')
@@ -820,7 +845,7 @@ describe('RPC3', () => {
 
       expect(await contract.getServerCount()).to.equal(3)
 
-      expect((await contract.connect(user1).getServerData()).contributions).to.equal(
+      expect((await contract.connect(user1).getServerData(user1.permit)).contributions).to.equal(
         // earned 2 points from submitting result and 7 points from skipping batches
         housekeepBaseReward.add(housekeepCleanReward).add(9)
       )
@@ -863,6 +888,11 @@ describe('RPC3', () => {
         user3
       )
 
+      // Regenerate expired permits
+      user1.permit = await createPermit(contract, user1)
+      user2.permit = await createPermit(contract, user2)
+      user3.permit = await createPermit(contract, user3)
+
       // users 1, 2 and 3 will get a contribution point by completing next batch User 3 will get extra points for
       // housekeeping
       const nextBatchNonce = (await contract.getCurrentBatchNonce()).add(1)
@@ -872,44 +902,58 @@ describe('RPC3', () => {
       await contract.connect(user1).submitBatchResult(nextBatchNonce, RESULT_3)
       await contract.connect(user2).submitBatchResult(nextBatchNonce, RESULT_3)
       await contract.connect(user3).submitBatchResult(nextBatchNonce, RESULT_3)
-      await contract.connect(user3).housekeepInactive((await contract.connect(user3).getInactiveServers(0))[0])
+      await contract
+        .connect(user3)
+        .housekeepInactive((await contract.connect(user3).getInactiveServers(user3.permit, 0))[0])
 
       await contract.connect(user1).applyPendingContribution()
       await contract.connect(user2).applyPendingContribution()
       await contract.connect(user3).applyPendingContribution()
 
-      expect((await contract.connect(user1).getServerData()).contributions).to.equal(3)
-      expect((await contract.connect(user2).getServerData()).contributions).to.equal(2)
-      expect((await contract.connect(user3).getServerData()).contributions).to.equal(26)
+      expect((await contract.connect(user1).getServerData(user1.permit)).contributions).to.equal(3)
+      expect((await contract.connect(user2).getServerData(user2.permit)).contributions).to.equal(2)
+      expect((await contract.connect(user3).getServerData(user3.permit)).contributions).to.equal(26)
 
       // there's already 0.16 ether in treasury because of user4 housekeeping
       await contract.donateToTreasury({ value: ethers.utils.parseEther('309.84') })
 
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther('310'))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('30'))
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('20'))
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('260'))
+      expect(await contract.connect(user1).estimateClaimableRewards(user1.permit)).to.equal(
+        ethers.utils.parseEther('30')
+      )
+      expect(await contract.connect(user2).estimateClaimableRewards(user2.permit)).to.equal(
+        ethers.utils.parseEther('20')
+      )
+      expect(await contract.connect(user3).estimateClaimableRewards(user3.permit)).to.equal(
+        ethers.utils.parseEther('260')
+      )
 
       await contract.connect(user1).claimRewards()
 
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther('280'))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('20'))
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('260'))
+      expect(await contract.connect(user1).estimateClaimableRewards(user1.permit)).to.equal(0)
+      expect(await contract.connect(user2).estimateClaimableRewards(user2.permit)).to.equal(
+        ethers.utils.parseEther('20')
+      )
+      expect(await contract.connect(user3).estimateClaimableRewards(user3.permit)).to.equal(
+        ethers.utils.parseEther('260')
+      )
 
       await contract.connect(user2).claimRewards()
 
       expect(await contract.treasury()).to.equal(ethers.utils.parseEther('260'))
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(0)
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('260'))
+      expect(await contract.connect(user1).estimateClaimableRewards(user1.permit)).to.equal(0)
+      expect(await contract.connect(user2).estimateClaimableRewards(user2.permit)).to.equal(0)
+      expect(await contract.connect(user3).estimateClaimableRewards(user3.permit)).to.equal(
+        ethers.utils.parseEther('260')
+      )
 
       await contract.connect(user3).claimRewards()
 
       expect(await contract.treasury()).to.equal(0)
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(0)
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(0)
-      expect(await contract.connect(user3).estimateClaimableRewards()).to.equal(0)
+      expect(await contract.connect(user1).estimateClaimableRewards(user1.permit)).to.equal(0)
+      expect(await contract.connect(user2).estimateClaimableRewards(user2.permit)).to.equal(0)
+      expect(await contract.connect(user3).estimateClaimableRewards(user3.permit)).to.equal(0)
     })
 
     it('Should limit the value of one contribution point if the treasury is big', async () => {
@@ -922,16 +966,20 @@ describe('RPC3', () => {
       await skipBatchesUntilInactive(contract, inactivityThreshold.toNumber(), consensusMaxDuration.toNumber(), user1)
       await contract.connect(user2).applyPendingContribution()
 
-      expect((await contract.connect(user1).getServerData()).contributions).to.equal(5)
-      expect((await contract.connect(user2).getServerData()).contributions).to.equal(1)
+      expect((await contract.connect(user1).getServerData(user1.permit)).contributions).to.equal(5)
+      expect((await contract.connect(user2).getServerData(user2.permit)).contributions).to.equal(1)
 
       await contract.donateToTreasury({ value: ethers.utils.parseEther('100') })
 
       // Treasury contains 100 ethers, but one contribution point cannot exceed 1 ether in value.
       // Without this limit, user1 and user2 would be sharing the entirety of the treasury
       // (100 * 5/6 = 83.33 ethers for user1 and 16.66 ethers for user2)
-      expect(await contract.connect(user1).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('5'))
-      expect(await contract.connect(user2).estimateClaimableRewards()).to.equal(ethers.utils.parseEther('1'))
+      expect(await contract.connect(user1).estimateClaimableRewards(user1.permit)).to.equal(
+        ethers.utils.parseEther('5')
+      )
+      expect(await contract.connect(user2).estimateClaimableRewards(user2.permit)).to.equal(
+        ethers.utils.parseEther('1')
+      )
     })
   })
 
@@ -943,6 +991,7 @@ describe('RPC3', () => {
           globalParams: { inactivityThreshold, consensusMaxDuration }
         } = await deploy({ consensusMaxDuration: ethers.BigNumber.from(999999) })
         const wallets = await registerManyServers(contract, serverCount)
+        const firstWallet = wallets[0] as WithPermit<TypedDataSigner>
         expect(await contract.getServerCount()).to.equal(serverCount)
         await skipBatchesUntilInactive(
           contract,
@@ -960,7 +1009,7 @@ describe('RPC3', () => {
         console.log()
 
         async function processBatch() {
-          const batch = await contract.connect(wallets[0]).getCurrentBatch(0)
+          const batch = await contract.connect(firstWallet).getCurrentBatch(firstWallet.permit, 0)
           const batchNonce = batch.nonce.toNumber()
           await runParallel(wallets.length, async i => {
             const wallet = wallets[i]
@@ -986,12 +1035,12 @@ describe('RPC3', () => {
         const inactiveServers: string[] = []
         let maxPage = 0
         for (let i = 0; i <= maxPage && inactiveServers.length < 10; i++) {
-          const res = await contract.connect(wallets[0]).getInactiveServers(i)
+          const res = await contract.connect(firstWallet).getInactiveServers(firstWallet.permit, i)
           inactiveServers.push(...res[0])
           maxPage = res[1].toNumber()
         }
 
-        await contract.connect(wallets[0]).housekeepInactive(inactiveServers)
+        await contract.connect(firstWallet).housekeepInactive(inactiveServers)
         expect(await contract.getServerCount()).to.equal(Math.max(serverCount - 10, Math.ceil(serverCount * 0.75)))
       }
 

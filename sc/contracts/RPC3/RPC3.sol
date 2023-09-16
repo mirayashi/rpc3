@@ -13,8 +13,15 @@ import {ConsensusLib, ConsensusState} from "./ConsensusLib.sol";
 import {GlobalParamsValidator} from "./GlobalParamsValidator.sol";
 import {PaginationLib, Pagination} from "../common/PaginationLib.sol";
 import {StakeLib} from "../common/StakeLib.sol";
+import {SignedPermitChecker} from "../common/SignedPermitChecker.sol";
 
-contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
+contract RPC3 is
+    Ownable,
+    Pausable,
+    PullPayment,
+    ReentrancyGuard,
+    SignedPermitChecker
+{
     using EnumerableSet for EnumerableSet.AddressSet;
     using StakeLib for StakeLib.Stake;
     using ConsensusLib for Consensus;
@@ -214,11 +221,11 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     }
 
     /**
-     * @dev Check whether the caller is registered as a server.
+     * @dev Check whether the address is registered as a server.
      * @return bool
      */
-    function amIRegistered() external view returns (bool) {
-        return _serverSet.contains(msg.sender);
+    function isRegistered(address addr) external view returns (bool) {
+        return _serverSet.contains(addr);
     }
 
     /**
@@ -226,12 +233,9 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      * most recent contribution, hence "estimate". This can be worked around by calling applyPendingContribution()
      * before calling this function.
      */
-    function estimateClaimableRewards()
-        external
-        view
-        onlyRegistered
-        returns (uint)
-    {
+    function estimateClaimableRewards(
+        SignedPermit calldata sp
+    ) external view onlyRegistered onlyPermitted(sp) returns (uint) {
         Server memory s = _servers[msg.sender];
         unchecked {
             --s.contributions;
@@ -269,8 +273,15 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      * page in order to get the full batch data.
      */
     function getCurrentBatch(
+        SignedPermit calldata sp,
         uint page
-    ) external view onlyRegistered returns (BatchView memory) {
+    )
+        external
+        view
+        onlyRegistered
+        onlyPermitted(sp)
+        returns (BatchView memory)
+    {
         uint batchSize = _batchSize();
         if (batchSize == 0) {
             revert EmptyBatch();
@@ -366,11 +377,13 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      * multi-page result where each page contain very few or no elements at all.
      */
     function getInactiveServers(
+        SignedPermit calldata sp,
         uint page
     )
         external
         view
         onlyRegistered
+        onlyPermitted(sp)
         canHousekeep
         returns (address[] memory, uint)
     {
@@ -469,12 +482,9 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
     /**
      * @dev Get all data related to the server calling this function.
      */
-    function getServerData()
-        external
-        view
-        onlyRegistered
-        returns (Server memory)
-    {
+    function getServerData(
+        SignedPermit calldata sp
+    ) external view onlyRegistered onlyPermitted(sp) returns (Server memory) {
         Server memory s = _servers[msg.sender];
         s.contributions--;
         return s;
@@ -498,8 +508,9 @@ contract RPC3 is Ownable, Pausable, PullPayment, ReentrancyGuard {
      * function passing the request nonce.
      */
     function getResponse(
+        SignedPermit calldata sp,
         uint requestNonce
-    ) external view returns (CID memory, uint) {
+    ) external view onlyPermitted(sp) returns (CID memory, uint) {
         address author = _requestQueue.queue[requestNonce].author;
         if (author == address(0)) {
             revert InvalidRequestNonce();
