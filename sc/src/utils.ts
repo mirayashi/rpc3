@@ -1,18 +1,8 @@
 import { time } from '@nomicfoundation/hardhat-network-helpers'
 import { ethers } from 'hardhat'
-import type { Signer, TypedDataDomain, TypedDataField } from 'ethers'
+import type { Signer } from 'ethers'
 import type { RPC3, SignedPermitChecker } from '../typechain-types'
-import { multihash, utils } from 'rpc3-common'
-
-export interface TypedDataSigner extends Signer {
-  readonly address: string
-  _signTypedData(
-    domain: TypedDataDomain,
-    types: Record<string, Array<TypedDataField>>,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    value: Record<string, any>
-  ): Promise<string>
-}
+import { multihash, utils, type TypedDataSigner } from 'rpc3-common'
 
 export function toStruct<T extends object>(obj: T): T {
   return Object.assign(Object.values(obj), obj)
@@ -45,23 +35,6 @@ export async function skipBatchesUntilInactive(
   }
 }
 
-const types = {
-  CipheredPermit: [
-    { name: 'nonce', type: 'uint256' },
-    { name: 'ciphertext', type: 'bytes' }
-  ]
-}
-
-export async function createPermit(contract: SignedPermitChecker, user: TypedDataSigner) {
-  const cipheredPermit = await contract.requestPermit(user.address, 0, 3600)
-  const signature = await user._signTypedData(
-    utils.toTypedDataDomain(await contract.eip712Domain()),
-    types,
-    cipheredPermit
-  )
-  return { cipheredPermit, signature }
-}
-
 export type WithPermit<T> = T & {
   permit: {
     cipheredPermit: SignedPermitChecker.CipheredPermitStructOutput
@@ -73,9 +46,9 @@ export async function attachPermitForEach(
   contract: SignedPermitChecker,
   wallets: TypedDataSigner[]
 ): Promise<WithPermit<TypedDataSigner>[]> {
-  const walletsWithPermits = []
+  const walletsWithPermits: WithPermit<TypedDataSigner>[] = []
   for (const wallet of wallets) {
-    walletsWithPermits.push(Object.assign(wallet, { permit: await createPermit(contract, wallet) }))
+    walletsWithPermits.push(Object.assign(wallet, { permit: await utils.createPermit(contract, wallet) }))
   }
   return walletsWithPermits
 }

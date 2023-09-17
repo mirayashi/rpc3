@@ -1,4 +1,6 @@
-import { type TypedDataDomain, ethers } from 'ethers'
+import { type TypedDataDomain, ethers, BigNumberish } from 'ethers'
+import { SignedPermitChecker } from '../generated/contracts/common/SignedPermitChecker'
+import { TypedDataSigner } from './types'
 
 export async function asyncIterableToString(input: AsyncIterable<Uint8Array>) {
   const decoder = new TextDecoder('utf8')
@@ -35,4 +37,17 @@ export function buf322BigInt(buf: Uint8Array): bigint {
 export function toTypedDataDomain(input: Record<string, any>): TypedDataDomain {
   const { name, version, chainId, verifyingContract } = input
   return { name, version, chainId, verifyingContract }
+}
+
+const types = {
+  CipheredPermit: [
+    { name: 'nonce', type: 'uint256' },
+    { name: 'ciphertext', type: 'bytes' }
+  ]
+}
+
+export async function createPermit(contract: SignedPermitChecker, user: TypedDataSigner, nonce: BigNumberish = 0) {
+  const cipheredPermit = await contract.requestPermit(user.address, nonce, 3600)
+  const signature = await user._signTypedData(toTypedDataDomain(await contract.eip712Domain()), types, cipheredPermit)
+  return { cipheredPermit, signature }
 }

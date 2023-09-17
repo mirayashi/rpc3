@@ -3,7 +3,7 @@ import * as sapphire from '@oasisprotocol/sapphire-paratime'
 import type { AsyncDatabase } from 'promised-sqlite3'
 
 import type { AppConfig } from '../app.config.js'
-import { type Request, type Response, type RPC3, RPC3Factory, multihash, utils } from 'rpc3-common'
+import { type Request, type Response, type RPC3, type Permit, RPC3Factory, multihash, utils } from 'rpc3-common'
 import IPFSStorage from './IPFSStorage.js'
 
 export type RequestContext = {
@@ -12,20 +12,29 @@ export type RequestContext = {
   payload: Request
 }
 
+export type SapphireWallet = ethers.Wallet & sapphire.SapphireAnnex
+
 export default class RPC3Server {
   private readonly _ipfs: IPFSStorage
   private readonly _contract: RPC3
+  private readonly _wallet: SapphireWallet
+  private _permit?: Permit
+  private _permitExpiresAt: number
+  private _permitNonce: number
 
-  private constructor(ipfs: IPFSStorage, contract: RPC3) {
+  private constructor(ipfs: IPFSStorage, contract: RPC3, wallet: SapphireWallet) {
     this._ipfs = ipfs
     this._contract = contract
+    this._wallet = wallet
+    this._permitExpiresAt = 0
+    this._permitNonce = 0
   }
 
   static async create(config: AppConfig) {
     const ipfs = await IPFSStorage.create(config.ipfsRpcUrl)
     const wallet = sapphire.wrap(new ethers.Wallet(config.walletPrivateKey, config.ethersProvider))
     const contract = RPC3Factory.connect(config.contractAddress, wallet)
-    return new RPC3Server(ipfs, contract)
+    return new RPC3Server(ipfs, contract, wallet)
   }
 
   get contract(): RPC3 {
@@ -33,7 +42,7 @@ export default class RPC3Server {
   }
 
   async ensureIsRegistered() {
-    const registered = await this._contract.isRegistered()
+    const registered = await this._contract.isRegistered(this._wallet.address)
     if (!registered) {
       const tx = await this._contract.serverRegister({ value: await this._contract.getStakeRequirement() })
       console.log('register tx', await tx.wait())
@@ -42,7 +51,7 @@ export default class RPC3Server {
 
   async processBatch(onRequest: (req: RequestContext) => Promise<Response>) {
     const batch = await this._contract
-      .getCurrentBatch(0)
+      .getCurrentBatch(await this.getPermit(), 0)
       .catch(err => console.error('processBatch(): could not get batch info', err))
     if (batch === undefined) {
       return
@@ -56,8 +65,8 @@ export default class RPC3Server {
     const db = await this._ipfs.openDatabase()
     const responses: string[] = []
     for (const { author, cid } of batch.requests) {
-      const cid = multihash.stringify(cid)
-      const payload: Request = JSON.parse(await utils.asyncIterableToString(this._ipfs.client.cat(cid)))
+      const cidStr = multihash.stringify(cid)
+      const payload: Request = JSON.parse(await utils.asyncIterableToString(this._ipfs.client.cat(cidStr)))
       const response = await onRequest({ db, author, payload })
       const addResult = await this._ipfs.client.add(JSON.stringify(response))
       responses.push(addResult.cid.toString())
@@ -67,5 +76,13 @@ export default class RPC3Server {
     const responseCid = multihash.parse((await this._ipfs.client.add(JSON.stringify(responses))).cid.toString())
     const tx = await this._contract.submitBatchResult(batch.nonce, { finalStateCid, responseCid })
     console.log('submit batch result tx', await tx.wait())
+  }
+
+  async getPermit(): Promise<Permit> {
+    if (this._permit === undefined || Date.now() > this._permitExpiresAt) {
+      this._permitExpiresAt = Date.now() + 3600000
+      this._permit = await utils.createPermit(this._contract, this._wallet, this._permitNonce++)
+    }
+    return this._permit
   }
 }

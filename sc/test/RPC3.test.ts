@@ -3,7 +3,7 @@ import { expect } from 'chai'
 import { ethers } from 'hardhat'
 import { RESULT_1, RESULT_2, RESULT_3 } from '../src/batchResult'
 import expectThatCurrentBatchHas from '../src/expectThatCurrentBatchHas'
-import { multihash } from 'rpc3-common'
+import { multihash, utils, type TypedDataSigner } from 'rpc3-common'
 import runParallel from '../src/runParallel'
 import {
   deploy,
@@ -14,14 +14,7 @@ import {
   deployAndRegisterOwner,
   deployAndSubmitOneRequest
 } from '../src/fixtures'
-import {
-  TypedDataSigner,
-  WithPermit,
-  createPermit,
-  registerManyServers,
-  skipBatchesUntilInactive,
-  toStruct
-} from '../src/utils'
+import { WithPermit, registerManyServers, skipBatchesUntilInactive, toStruct } from '../src/utils'
 
 describe('RPC3', () => {
   describe('Deployment', () => {
@@ -835,7 +828,7 @@ describe('RPC3', () => {
       await contract.connect(user3).submitBatchResult(batchNonce, RESULT_2)
 
       // Permit has expired because of skipBatchesUntilInactive
-      user1.permit = await createPermit(contract, user1)
+      user1.permit = await utils.createPermit(contract, user1)
       expect(await contract.connect(user1).getInactiveServers(user1.permit, 0)).to.deep.equal([[user4.address], 0])
 
       await expect(contract.connect(user1).housekeepInactive([user4.address]))
@@ -889,9 +882,9 @@ describe('RPC3', () => {
       )
 
       // Regenerate expired permits
-      user1.permit = await createPermit(contract, user1)
-      user2.permit = await createPermit(contract, user2)
-      user3.permit = await createPermit(contract, user3)
+      user1.permit = await utils.createPermit(contract, user1)
+      user2.permit = await utils.createPermit(contract, user2)
+      user3.permit = await utils.createPermit(contract, user3)
 
       // users 1, 2 and 3 will get a contribution point by completing next batch User 3 will get extra points for
       // housekeeping

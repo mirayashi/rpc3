@@ -1,7 +1,7 @@
 import { ethers } from 'hardhat'
 import { RESULT_1, RESULT_2 } from '../src/batchResult'
-import { multihash } from 'rpc3-common'
-import { attachPermitForEach, createPermit, registerManyServers, skipBatchesUntilInactive } from '../src/utils'
+import { multihash, utils } from 'rpc3-common'
+import { attachPermitForEach, registerManyServers, skipBatchesUntilInactive } from '../src/utils'
 
 export async function deploy(globalParamsOverrides?: object) {
   // Contracts are deployed using the first signer/account by default
@@ -91,6 +91,6 @@ export async function deployAndMake220UsersHousekeepable(globalParamsOverrides?:
     wallets[219]
   )
   // We need to regenerate owner's permit as it has likely expired
-  owner.permit = await createPermit(contract, owner)
+  owner.permit = await utils.createPermit(contract, owner)
   return fixture
 }
