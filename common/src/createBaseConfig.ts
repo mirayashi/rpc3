@@ -1,7 +1,7 @@
 import { ethers } from 'ethers'
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
 
-import ConfigBuilder from './ConfigBuilder'
+import { ConfigBuilder } from './ConfigBuilder'
 import { requireEnv } from './requireEnv'
 
 export type BaseConfig = {

@@ -3,7 +3,16 @@ import * as sapphire from '@oasisprotocol/sapphire-paratime'
 import type { AsyncDatabase } from 'promised-sqlite3'
 
 import type { AppConfig } from '../app.config.js'
-import { type Request, type Response, type RPC3, type Permit, RPC3Factory, multihash, utils } from 'rpc3-common'
+import {
+  type Request,
+  type Response,
+  type RPC3,
+  type SapphireWallet,
+  multihash,
+  PermitManager,
+  RPC3Factory,
+  utils
+} from 'rpc3-common'
 import IPFSStorage from './IPFSStorage.js'
 
 export type RequestContext = {
@@ -12,22 +21,17 @@ export type RequestContext = {
   payload: Request
 }
 
-export type SapphireWallet = ethers.Wallet & sapphire.SapphireAnnex
-
 export default class RPC3Server {
   private readonly _ipfs: IPFSStorage
   private readonly _contract: RPC3
   private readonly _wallet: SapphireWallet
-  private _permit?: Permit
-  private _permitExpiresAt: number
-  private _permitNonce: number
+  private readonly _permitManager: PermitManager
 
   private constructor(ipfs: IPFSStorage, contract: RPC3, wallet: SapphireWallet) {
     this._ipfs = ipfs
     this._contract = contract
     this._wallet = wallet
-    this._permitExpiresAt = 0
-    this._permitNonce = 0
+    this._permitManager = new PermitManager(contract, wallet)
   }
 
   static async create(config: AppConfig) {
@@ -51,7 +55,7 @@ export default class RPC3Server {
 
   async processBatch(onRequest: (req: RequestContext) => Promise<Response>) {
     const batch = await this._contract
-      .getCurrentBatch(await this.getPermit(), 0)
+      .getCurrentBatch(await this._permitManager.acquirePermit(), 0)
       .catch(err => console.error('processBatch(): could not get batch info', err))
     if (batch === undefined) {
       return
@@ -76,13 +80,5 @@ export default class RPC3Server {
     const responseCid = multihash.parse((await this._ipfs.client.add(JSON.stringify(responses))).cid.toString())
     const tx = await this._contract.submitBatchResult(batch.nonce, { finalStateCid, responseCid })
     console.log('submit batch result tx', await tx.wait())
-  }
-
-  async getPermit(): Promise<Permit> {
-    if (this._permit === undefined || Date.now() > this._permitExpiresAt) {
-      this._permitExpiresAt = Date.now() + 3600000
-      this._permit = await utils.createPermit(this._contract, this._wallet, this._permitNonce++)
-    }
-    return this._permit
   }
 }

@@ -1,7 +1,7 @@
 export type ConfigDefinition<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K | 'env'>
 export type Config<T, K extends keyof T> = Pick<T, K> & Omit<T, K | 'env'> & { env: string }
 
-export default class ConfigBuilder<T, O extends keyof T> {
+export class ConfigBuilder<T, O extends keyof T> {
   private defaultConfig: Pick<T, O>
   private definitionsByEnv: Map<string, Config<T, O>>
 

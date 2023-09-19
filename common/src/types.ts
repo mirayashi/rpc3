@@ -1,4 +1,5 @@
-import { BigNumber, Signer, TypedDataDomain, TypedDataField } from 'ethers'
+import { BigNumber, Wallet, Signer, TypedDataDomain, TypedDataField } from 'ethers'
+import * as sapphire from '@oasisprotocol/sapphire-paratime'
 
 export type Request = {
   count: number
@@ -28,3 +29,5 @@ export type Permit = {
   cipheredPermit: CipheredPermit
   signature: string
 }
+
+export type SapphireWallet = Wallet & sapphire.SapphireAnnex
