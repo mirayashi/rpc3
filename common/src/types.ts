@@ -1,4 +1,5 @@
 import { BigNumber, Wallet, Signer, TypedDataDomain, TypedDataField } from 'ethers'
+// @ts-expect-error cjs
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
 
 export type Request = {

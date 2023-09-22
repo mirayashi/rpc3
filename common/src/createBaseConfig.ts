@@ -1,4 +1,5 @@
 import { ethers } from 'ethers'
+// @ts-expect-error cjs
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
 
 import { ConfigBuilder } from './ConfigBuilder'

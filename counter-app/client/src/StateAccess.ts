@@ -1,4 +1,4 @@
-import RPC3Client from './RPC3Client'
+import RPC3Client from './RPC3Client.js'
 
 export default class StateAccess {
   private readonly _client: RPC3Client

@@ -1,7 +1,7 @@
 import { expect } from 'chai'
 import { RPC3, RequestStruct } from '../typechain-types/contracts/RPC3/RPC3'
-import { Multihash } from 'rpc3-common'
-import { TypedDataSigner, WithPermit } from './utils'
+import { Multihash, type TypedDataSigner } from 'rpc3-common'
+import { WithPermit } from './utils'
 
 async function expectThatCurrentBatchHas(
   contract: RPC3,
