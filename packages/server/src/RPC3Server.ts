@@ -2,8 +2,8 @@ import { ethers } from 'ethers'
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
 import type { AsyncDatabase } from 'promised-sqlite3'
 
-import type { AppConfig } from './app.config.js'
 import {
+  type BaseConfig,
   type Request,
   type Response,
   type RPC3,
@@ -34,7 +34,7 @@ export default class RPC3Server {
     this._permitManager = new PermitManager(contract, wallet)
   }
 
-  static async create(config: AppConfig) {
+  static async create(config: BaseConfig) {
     const ipfs = await IPFSStorage.create(config.ipfsRpcUrl)
     const wallet = sapphire.wrap(new ethers.Wallet(config.walletPrivateKey, config.ethersProvider))
     const contract = RPC3Factory.connect(config.contractAddress, wallet)

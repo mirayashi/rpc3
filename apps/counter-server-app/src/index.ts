@@ -1,6 +1,6 @@
 import { utils } from '@rpc3/common'
 import { config } from './app.config.js'
-import RPC3Server from './RPC3Server.js'
+import { RPC3Server } from '@rpc3/server'
 import { onRequest } from './RequestProcessor.js'
 
 const server = await RPC3Server.create(config)

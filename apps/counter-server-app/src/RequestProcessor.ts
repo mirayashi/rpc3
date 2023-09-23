@@ -1,5 +1,5 @@
 import type { Response } from '@rpc3/common'
-import type { RequestContext } from './RPC3Server.js'
+import type { RequestContext } from '@rpc3/server'
 
 export async function onRequest({ db, author, payload }: RequestContext): Promise<Response> {
   await db.run(

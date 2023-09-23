@@ -1,5 +1,5 @@
 import { config } from './app.config.js'
-import IPFSStorage from './IPFSStorage.js'
+import { IPFSStorage } from '@rpc3/server'
 
 const ipfs = await IPFSStorage.create(config.ipfsRpcUrl)
 await ipfs.dropDatabase()

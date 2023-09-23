@@ -142,7 +142,7 @@ export default class RPC3Client {
     })
   }
 
-  async openCurrentStateDatabase(dbFile = path.resolve(os.tmpdir(), '@rpc3/client', 'db.sqlite')) {
+  async openCurrentStateDatabase(dbFile = path.resolve(os.tmpdir(), 'rpc3-client', 'db.sqlite')) {
     await fsextra.ensureDir(path.dirname(dbFile))
     const stateCid = multihash.stringify(await this._contract.getStateCid())
     await fs.promises.writeFile(dbFile, this._ipfs.cat(stateCid))
