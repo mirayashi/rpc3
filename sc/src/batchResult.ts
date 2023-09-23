@@ -1,4 +1,4 @@
-import { multihash, Multihash } from 'rpc3-common'
+import { multihash, Multihash } from '@rpc3/common'
 
 interface Result {
   finalStateCid: Multihash

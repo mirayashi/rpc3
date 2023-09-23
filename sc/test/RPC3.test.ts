@@ -3,7 +3,7 @@ import { expect } from 'chai'
 import { ethers } from 'hardhat'
 import { RESULT_1, RESULT_2, RESULT_3 } from '../src/batchResult'
 import expectThatCurrentBatchHas from '../src/expectThatCurrentBatchHas'
-import { multihash, utils, type TypedDataSigner } from 'rpc3-common'
+import { multihash, utils, type TypedDataSigner } from '@rpc3/common'
 import runParallel from '../src/runParallel'
 import {
   deploy,

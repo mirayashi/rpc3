@@ -1,7 +1,7 @@
 import { loadFixture } from '@nomicfoundation/hardhat-network-helpers'
 import { expect } from 'chai'
 import { deployPCU, deployPCUAndCreateKeys } from '../src/fixturesPCU'
-import { utils } from 'rpc3-common'
+import { utils } from '@rpc3/common'
 
 describe('PrivateComputationUnit', () => {
   describe('Key creation', () => {

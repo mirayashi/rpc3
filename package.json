@@ -1,10 +1,11 @@
 {
   "name": "rpc3",
   "version": "1.0.0",
-  "description": "A standard for decentralized remote procedure calls leveraging IPFS and privacy-enabled blockchain",
+  "description": "A PoC for decentralized remote procedure calls leveraging IPFS and privacy-enabled blockchain",
   "scripts": {
-    "postinstall": "cross-env HH_EXCLUDE_TASKS=1 npm -w sc run compile:clean && npm -w common run build",
-    "clean:all": "npm -w sc run clean && npm -w common run clean"
+    "postinstall": "cross-env HH_EXCLUDE_TASKS=1 npm -w sc run compile:clean && npm -w packages/common run copy-generated && tsc --build",
+    "clean": "npm --workspaces --if-present run clean",
+    "eslint": "npm --workspaces --if-present run eslint"
   },
   "keywords": [
     "rpc3",
@@ -20,6 +21,8 @@
   "author": "Mirayashi",
   "license": "MIT",
   "devDependencies": {
+    "@types/fs-extra": "^11.0.1",
+    "@types/lodash": "^4.14.197",
     "@typescript-eslint/eslint-plugin": "^6.3.0",
     "@typescript-eslint/parser": "^6.3.0",
     "copyfiles": "^2.4.1",
@@ -27,18 +30,21 @@
     "eslint": "^8.47.0",
     "rimraf": "^5.0.1"
   },
-  "workspaces": [
-    "common",
-    "sc",
-    "counter-app/server",
-    "counter-app/client"
-  ],
   "dependencies": {
     "@oasisprotocol/sapphire-paratime": "^1.1.1",
+    "cross-env": "^7.0.3",
     "dotenv": "^16.3.1",
     "ethers": "^5.7.2",
     "fs-extra": "^11.1.1",
     "kubo-rpc-client": "^3.0.1",
     "promised-sqlite3": "^2.1.0"
-  }
+  },
+  "workspaces": [
+    "apps/counter-client-app",
+    "apps/counter-server-app",
+    "packages/client",
+    "packages/common",
+    "packages/server",
+    "sc"
+  ]
 }

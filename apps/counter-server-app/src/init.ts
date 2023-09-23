@@ -1,4 +1,4 @@
-import { config } from '../app.config.js'
+import { config } from './app.config.js'
 import IPFSStorage from './IPFSStorage.js'
 
 const ipfs = await IPFSStorage.create(config.ipfsRpcUrl)

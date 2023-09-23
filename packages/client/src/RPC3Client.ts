@@ -9,22 +9,20 @@ import * as sapphire from '@oasisprotocol/sapphire-paratime'
 import { type IPFSHTTPClient, create as createIpfsRpcClient } from 'kubo-rpc-client'
 import { AsyncDatabase } from 'promised-sqlite3'
 
-import type { AppConfig } from '../app.config.js'
 import {
-  type Request,
-  type Response,
+  type BaseConfig,
   type RPC3,
   type SapphireWallet,
   multihash,
   PermitManager,
   RPC3Factory,
   utils
-} from 'rpc3-common'
+} from '@rpc3/common'
 
 type EmittedResponse = {
   requestNonce: ethers.BigNumber
   batchNonce: ethers.BigNumber
-  response: Response
+  response: unknown
 }
 
 export default class RPC3Client {
@@ -43,7 +41,7 @@ export default class RPC3Client {
     this.initListeners()
   }
 
-  static async create(config: AppConfig) {
+  static async create(config: BaseConfig) {
     const ipfs = createIpfsRpcClient({ url: config.ipfsRpcUrl })
     const wallet = sapphire.wrap(new ethers.Wallet(config.walletPrivateKey, config.ethersProvider))
     const contract = RPC3Factory.connect(config.contractAddress, wallet)
@@ -107,7 +105,7 @@ export default class RPC3Client {
     return this._wallet
   }
 
-  async sendRequest(req: Request) {
+  async sendRequest(req: unknown) {
     const { cid } = await this._ipfs.add(JSON.stringify(req))
     const timeLabel = `Processed request ${cid} in`
     console.time(timeLabel)
@@ -119,7 +117,7 @@ export default class RPC3Client {
       throw new Error(`Request submission of ${cid} failed for an unknown reason`)
     }
     const [requestNonce, batchNonce]: [ethers.BigNumber, ethers.BigNumber] = [eventArgs[0], eventArgs[1]]
-    return new Promise<Response>((resolve, reject) => {
+    return new Promise<unknown>((resolve, reject) => {
       const listener = (type: string, res: EmittedResponse) => {
         if (
           res.requestNonce.toBigInt() !== requestNonce.toBigInt() ||
@@ -144,7 +142,7 @@ export default class RPC3Client {
     })
   }
 
-  async openCurrentStateDatabase(dbFile = path.resolve(os.tmpdir(), 'rpc3-client', 'db.sqlite')) {
+  async openCurrentStateDatabase(dbFile = path.resolve(os.tmpdir(), '@rpc3/client', 'db.sqlite')) {
     await fsextra.ensureDir(path.dirname(dbFile))
     const stateCid = multihash.stringify(await this._contract.getStateCid())
     await fs.promises.writeFile(dbFile, this._ipfs.cat(stateCid))

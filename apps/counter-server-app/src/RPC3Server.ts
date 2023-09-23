@@ -2,7 +2,7 @@ import { ethers } from 'ethers'
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
 import type { AsyncDatabase } from 'promised-sqlite3'
 
-import type { AppConfig } from '../app.config.js'
+import type { AppConfig } from './app.config.js'
 import {
   type Request,
   type Response,
@@ -12,7 +12,7 @@ import {
   PermitManager,
   RPC3Factory,
   utils
-} from 'rpc3-common'
+} from '@rpc3/common'
 import IPFSStorage from './IPFSStorage.js'
 
 export type RequestContext = {

@@ -1,6 +1,6 @@
 import { ethers } from 'hardhat'
 import { RESULT_1, RESULT_2 } from '../src/batchResult'
-import { multihash, utils } from 'rpc3-common'
+import { multihash, utils } from '@rpc3/common'
 import { attachPermitForEach, registerManyServers, skipBatchesUntilInactive } from '../src/utils'
 
 export async function deploy(globalParamsOverrides?: object) {

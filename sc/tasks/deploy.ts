@@ -1,6 +1,6 @@
 import { task } from 'hardhat/config'
 import '@nomicfoundation/hardhat-toolbox'
-import { multihash } from 'rpc3-common'
+import { multihash } from '@rpc3/common'
 import '@oasisprotocol/sapphire-hardhat'
 
 const globalParamsDefault = {

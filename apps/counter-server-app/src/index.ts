@@ -1,5 +1,5 @@
-import { utils } from 'rpc3-common'
-import { config } from '../app.config.js'
+import { utils } from '@rpc3/common'
+import { config } from './app.config.js'
 import RPC3Server from './RPC3Server.js'
 import { onRequest } from './RequestProcessor.js'
 

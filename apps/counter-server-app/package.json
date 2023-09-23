@@ -1,0 +1,14 @@
+{
+  "name": "@rpc3/counter-server-app",
+  "version": "1.0.0",
+  "description": "Server for a demo counter application built with rpc3",
+  "type": "module",
+  "scripts": {
+    "clean": "rimraf ./dist",
+    "eslint": "eslint --ext .ts \"src/**\"",
+    "start": "node dist/index.js",
+    "db:init": "node dist/init.js"
+  },
+  "author": "Mirayashi",
+  "license": "MIT"
+}

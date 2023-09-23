@@ -1,7 +1,7 @@
 import { loadFixture, time } from '@nomicfoundation/hardhat-network-helpers'
 import { ethers } from 'hardhat'
 import { expect } from 'chai'
-import { utils } from 'rpc3-common'
+import { utils } from '@rpc3/common'
 
 describe('SignedPermitChecker', () => {
   async function deploy() {

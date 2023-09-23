@@ -1,0 +1,16 @@
+{
+  "name": "@rpc3/client",
+  "version": "1.0.0",
+  "description": "A rudimentary client interface for the rpc3 project",
+  "exports": {
+    "types": "./dist/index.d.ts",
+    "import": "./dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "clean": "rimraf ./dist",
+    "eslint": "eslint --ext .ts \"src/**\""
+  },
+  "author": "Mirayashi",
+  "license": "MIT"
+}

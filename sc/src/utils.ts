@@ -2,7 +2,7 @@ import { time } from '@nomicfoundation/hardhat-network-helpers'
 import { ethers } from 'hardhat'
 import type { Signer } from 'ethers'
 import type { RPC3, SignedPermitChecker } from '../typechain-types'
-import { multihash, utils, type TypedDataSigner } from 'rpc3-common'
+import { multihash, utils, type TypedDataSigner } from '@rpc3/common'
 
 export function toStruct<T extends object>(obj: T): T {
   return Object.assign(Object.values(obj), obj)

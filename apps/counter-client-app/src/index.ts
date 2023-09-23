@@ -1,8 +1,9 @@
 import readline from 'readline/promises'
 import { stdin, stdout, exit } from 'process'
 
-import { config } from '../app.config.js'
-import RPC3Client from './RPC3Client.js'
+import { RPC3Client } from '@rpc3/client'
+
+import { config } from './app.config.js'
 import StateAccess from './StateAccess.js'
 
 const client = await RPC3Client.create(config)
@@ -16,7 +17,13 @@ const input = parseInt(
   )
 )
 const response = await client.sendRequest({ count: input })
-if (response.status === 'ok') {
+if (
+  typeof response === 'object' &&
+  response !== null &&
+  'status' in response &&
+  'newCount' in response &&
+  response.status === 'ok'
+) {
   console.log('Your counter was incremented successfully! It is now %d', response.newCount)
 }
 rl.close()

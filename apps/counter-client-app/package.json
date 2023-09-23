@@ -1,0 +1,13 @@
+{
+  "name": "@rpc3/counter-client-app",
+  "version": "1.0.0",
+  "description": "Client for a demo counter application built with rpc3",
+  "type": "module",
+  "scripts": {
+    "clean": "rimraf ./dist",
+    "eslint": "eslint --ext .ts \"src/**\"",
+    "start": "node dist/index.js"
+  },
+  "author": "Mirayashi",
+  "license": "MIT"
+}
