@@ -1,0 +1,22 @@
+{
+  "name": "@rpc3/counter-app-types",
+  "version": "1.0.0",
+  "description": "Types for counter demo app",
+  "type": "module",
+  "exports": {
+    "types": "./dist/index.d.ts",
+    "import": "./dist/index.js"
+  },
+  "scripts": {
+    "clean": "rimraf ./dist",
+    "eslint": "eslint --ext .ts \"src/**\""
+  },
+  "keywords": [
+    "rpc3",
+    "types",
+    "counter",
+    "app"
+  ],
+  "author": "Mirayashi",
+  "license": "MIT"
+}

@@ -4,8 +4,6 @@ import type { AsyncDatabase } from 'promised-sqlite3'
 
 import {
   type BaseConfig,
-  type Request,
-  type Response,
   type RPC3,
   type SapphireWallet,
   multihash,
@@ -18,7 +16,7 @@ import IPFSStorage from './IPFSStorage.js'
 export type RequestContext = {
   db: AsyncDatabase
   author: string
-  payload: Request
+  payload: unknown
 }
 
 export default class RPC3Server {
@@ -53,7 +51,17 @@ export default class RPC3Server {
     }
   }
 
-  async processBatch(onRequest: (req: RequestContext) => Promise<Response>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  listenToRequests(onRequest: (req: RequestContext) => Promise<unknown>) {
+    this._contract.on('NextBatchReady', async () => {
+      await utils.nextBlock(this._contract.provider)
+      await this._processBatch(onRequest)
+    })
+    this._processBatch(onRequest)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async _processBatch(onRequest: (req: RequestContext) => Promise<unknown>) {
     const batch = await this._contract
       .getCurrentBatch(await this._permitManager.acquirePermit(), 0)
       .catch(err => console.error('processBatch(): could not get batch info', err))
@@ -70,7 +78,7 @@ export default class RPC3Server {
     const responses: string[] = []
     for (const { author, cid } of batch.requests) {
       const cidStr = multihash.stringify(cid)
-      const payload: Request = JSON.parse(await utils.asyncIterableToString(this._ipfs.client.cat(cidStr)))
+      const payload = JSON.parse(await utils.asyncIterableToString(this._ipfs.client.cat(cidStr)))
       const response = await onRequest({ db, author, payload })
       const addResult = await this._ipfs.client.add(JSON.stringify(response))
       responses.push(addResult.cid.toString())

@@ -2,15 +2,6 @@ import { BigNumber, Wallet, Signer, TypedDataDomain, TypedDataField } from 'ethe
 // @ts-expect-error cjs
 import * as sapphire from '@oasisprotocol/sapphire-paratime'
 
-export type Request = {
-  count: number
-}
-
-export type Response = {
-  status: string
-  newCount: number
-}
-
 export interface TypedDataSigner extends Signer {
   readonly address: string
   _signTypedData(
