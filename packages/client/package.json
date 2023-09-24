@@ -8,7 +8,7 @@
   },
   "type": "module",
   "scripts": {
-    "clean": "rimraf ./dist",
+    "clean": "rimraf ./dist *.tsbuildinfo",
     "eslint": "eslint --ext .ts \"src/**\""
   },
   "author": "Mirayashi",

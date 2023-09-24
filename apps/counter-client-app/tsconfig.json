@@ -4,5 +4,9 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [{ "path": "../../packages/common" }, { "path": "../../packages/client" }]
+  "references": [
+    { "path": "../../packages/common" },
+    { "path": "../../packages/client" },
+    { "path": "../../app-types/counter-app-types" }
+  ]
 }

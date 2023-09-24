@@ -86,7 +86,7 @@ contract RPC3 is
     event BatchFailed(uint indexed batchNonce);
     event BatchResultSubmitted(address indexed serverAddr);
     event GlobalParamsUpdated(GlobalParams newValue);
-    event HousekeepSuccess(uint cleanCount, uint nextHousekeepTimestamp);
+    event HousekeepSuccess(uint cleanCount, uint nextHousekeepAt);
     event NextBatchReady(uint indexed batchNonce);
     event RequestSubmitted(uint indexed requestNonce, uint batchNonce);
     event ServerRegistered(address indexed addr);
@@ -95,7 +95,7 @@ contract RPC3 is
     error BatchInProgress();
     error ConsensusNotActive();
     error EmptyBatch();
-    error HousekeepCooldown(uint nextHousekeepTimestamp);
+    error HousekeepCooldown(uint nextHousekeepAt);
     error InsufficientStake(uint expectedMinAmount);
     error InvalidBatchNonce();
     error InvalidRequestNonce();
@@ -424,6 +424,8 @@ contract RPC3 is
      * called with empty array or an array with some active servers. This is to encourage servers to call this function
      * immediately when cooldown is over, instead of having them wait until more servers become inactive, which may
      * create competition between housekeepers (which is the very thing the cooldown logic is designed to combat).
+     * Note also that cooldowns are batch nonce-based and not time-based, to cover the case where the contract doesn't
+     * receive any incoming request for an extended period of time.
      */
     function housekeepInactive(
         address[] calldata inactiveServers

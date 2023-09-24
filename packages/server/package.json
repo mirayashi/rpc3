@@ -8,7 +8,7 @@
     "import": "./dist/index.js"
   },
   "scripts": {
-    "clean": "rimraf ./dist",
+    "clean": "rimraf ./dist *.tsbuildinfo",
     "eslint": "eslint --ext .ts \"src/**\""
   },
   "keywords": [
