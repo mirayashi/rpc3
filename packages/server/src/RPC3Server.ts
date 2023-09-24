@@ -43,23 +43,27 @@ export default class RPC3Server {
     return this._contract
   }
 
+  get wallet(): SapphireWallet {
+    return this._wallet
+  }
+
   async ensureIsRegistered() {
     const registered = await this._contract.isRegistered(this._wallet.address)
     if (!registered) {
       const staked = await this._contract.getStakeRequirement()
       const tx = await this._contract.serverRegister({ value: staked })
       await tx.wait()
-      console.log('Registered with stake: %s', ethers.utils.formatEther(staked))
+      console.log('Registered with stake: %s ROSE', ethers.utils.formatEther(staked))
     } else {
       const serverData = await this._contract.getServerData(await this._permitManager.acquirePermit())
       console.log(
         `Server already registered.
-        Stake: %s
+        Stake: %s ROSE
         Contribution points: %d
         Last seen: batch %s
         Next housekeep: batch %d
         `,
-        serverData.stake,
+        ethers.utils.formatEther(serverData.stake),
         serverData.contributions,
         serverData.lastSeen,
         serverData.nextHousekeepAt
@@ -89,7 +93,9 @@ export default class RPC3Server {
   }
 
   async getClaimableBalance() {
-    const fromContributions = await this._contract.estimateClaimableRewards(await this._permitManager.acquirePermit())
+    const fromContributions = await this._contract
+      .estimateClaimableRewards(await this._permitManager.acquirePermit())
+      .catch(() => BigNumber.from(0))
     const fromPendingPayments = await this._contract.payments(this._wallet.address)
     return { fromContributions, fromPendingPayments }
   }
@@ -102,7 +108,10 @@ export default class RPC3Server {
         (async () => {
           const tx = await this._contract.claimRewards()
           await tx.wait()
-          console.log('withdrawAll: successfully withdrawn %d from contributions', fromContributions)
+          console.log(
+            'withdrawAll: successfully withdrawn %s ROSE from contributions',
+            ethers.utils.formatEther(fromContributions)
+          )
         })()
       )
     }
@@ -111,11 +120,14 @@ export default class RPC3Server {
         (async () => {
           const tx = await this._contract.withdrawPayments(this._wallet.address)
           await tx.wait()
-          console.log('withdrawAll: successfully withdrawn %d from pending payments', fromPendingPayments)
+          console.log(
+            'withdrawAll: successfully withdrawn %s ROSE from pending payments',
+            ethers.utils.formatEther(fromPendingPayments)
+          )
         })()
       )
     }
-    return Promise.allSettled(promises)
+    await Promise.allSettled(promises)
   }
 
   private async _housekeep(batchNonce: BigNumber) {

@@ -7,7 +7,9 @@
     "clean": "rimraf ./dist *.tsbuildinfo",
     "eslint": "eslint --ext .ts \"src/**\"",
     "start": "node dist/index.js",
-    "db:init": "node dist/init.js"
+    "db:init": "node dist/init.js",
+    "claim": "node dist/claim.js",
+    "unregister": "node dist/unregister.js"
   },
   "author": "Mirayashi",
   "license": "MIT"
