@@ -127,7 +127,7 @@ export default class RPC3Server {
         })()
       )
     }
-    await Promise.allSettled(promises)
+    await Promise.all(promises)
   }
 
   private async _housekeep(batchNonce: BigNumber) {
@@ -149,7 +149,7 @@ export default class RPC3Server {
   private async _processBatch(onRequest: (req: RequestContext) => Promise<unknown>) {
     const batch = await this._contract
       .getCurrentBatch(await this._permitManager.acquirePermit(), 0)
-      .catch(err => console.error('processBatch: could not get batch info', err))
+      .catch(() => console.error('processBatch: could not get current batch, waiting for next one'))
     if (batch === undefined) {
       return
     }
@@ -176,6 +176,11 @@ export default class RPC3Server {
     const responseCid = multihash.parse((await this._ipfs.client.add(JSON.stringify(responses))).cid.toString())
     const tx = await this._contract.submitBatchResult(batch.nonce, { finalStateCid, responseCid })
     await tx.wait()
-    console.log('processBatch: submitted result for batch %d', batch.nonce)
+    console.log(
+      'processBatch: submitted result for batch %d. New state: %s, responses: %s',
+      batch.nonce,
+      multihash.stringify(finalStateCid),
+      multihash.stringify(responseCid)
+    )
   }
 }

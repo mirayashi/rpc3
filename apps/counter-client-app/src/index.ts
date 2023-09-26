@@ -16,15 +16,21 @@ const input = parseInt(
     `Your current counter is at ${currentCounter}. How much do you want to increment it by? Enter any number: `
   )
 )
-const response = await client.sendRequest({ count: input })
-if (
-  typeof response === 'object' &&
-  response !== null &&
-  'status' in response &&
-  'newCount' in response &&
-  response.status === 'ok'
-) {
-  console.log('Your counter was incremented successfully! It is now %d', response.newCount)
+try {
+  const response = await client.sendRequest({ count: input })
+  if (
+    typeof response === 'object' &&
+    response !== null &&
+    'status' in response &&
+    'newCount' in response &&
+    response.status === 'ok'
+  ) {
+    console.log('Your counter was incremented successfully! It is now %d', response.newCount)
+  }
+} catch (err) {
+  console.error(typeof err === 'object' && err !== null && 'message' in err ? err.message : err)
+  exit(1)
+} finally {
+  rl.close()
 }
-rl.close()
 exit(0)

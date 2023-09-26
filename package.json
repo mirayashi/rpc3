@@ -40,12 +40,9 @@
     "promised-sqlite3": "^2.1.0"
   },
   "workspaces": [
-    "app-types/counter-app-types",
-    "apps/counter-client-app",
-    "apps/counter-server-app",
-    "packages/client",
-    "packages/common",
-    "packages/server",
+    "app-types/*",
+    "apps/*",
+    "packages/*",
     "sc"
   ]
 }
