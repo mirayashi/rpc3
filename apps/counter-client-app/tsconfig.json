@@ -7,6 +7,6 @@
   "references": [
     { "path": "../../packages/common" },
     { "path": "../../packages/client" },
-    { "path": "../../app-types/counter-app-types" }
+    { "path": "../../packages/counter-app-types" }
   ]
 }

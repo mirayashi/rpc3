@@ -41,7 +41,6 @@
     "promised-sqlite3": "^2.1.0"
   },
   "workspaces": [
-    "app-types/*",
     "apps/*",
     "packages/*",
     "sc"

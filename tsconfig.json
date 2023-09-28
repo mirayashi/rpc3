@@ -1,7 +1,7 @@
 {
   "files": [],
   "references": [
-    { "path": "app-types/counter-app-types" },
+    { "path": "packages/counter-app-types" },
     { "path": "apps/counter-client-app" },
     { "path": "apps/counter-server-app" },
     { "path": "packages/client" },
