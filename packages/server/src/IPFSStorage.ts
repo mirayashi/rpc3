@@ -19,7 +19,10 @@ export default class IPFSStorage {
     return this._client
   }
 
-  static async create(ipfsRpcUrl: string, dbFile = path.resolve(os.tmpdir(), 'rpc3-server', 'db.sqlite')) {
+  static async create(ipfsRpcUrl: string, dbFile?: string) {
+    if (dbFile === undefined) {
+      dbFile = path.join(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'rpc3-server-')), 'db.sqlite')
+    }
     await fsextra.ensureDir(path.dirname(dbFile))
     const client = createIpfsRpcClient({ url: ipfsRpcUrl })
     return new IPFSStorage(client, dbFile)
