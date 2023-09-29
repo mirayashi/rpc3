@@ -3,10 +3,9 @@
   "version": "1.0.0",
   "description": "A PoC for decentralized remote procedure calls leveraging IPFS and privacy-enabled blockchain",
   "scripts": {
-    "postinstall": "cross-env HH_EXCLUDE_TASKS=1 npm -w sc run compile:clean && npm -w packages/common run generated:copy && tsc --build",
+    "postinstall": "cross-env HH_EXCLUDE_TASKS=1 npm -w sc run compile:clean && npm -w packages/common run generated:link && tsc --build",
     "clean": "npm --workspaces --if-present run clean",
-    "eslint": "npm --workspaces --if-present run eslint",
-    "wallet:gen": "node walletGen.cjs"
+    "eslint": "npm --workspaces --if-present run eslint"
   },
   "keywords": [
     "rpc3",
@@ -26,7 +25,7 @@
     "@types/lodash": "^4.14.197",
     "@typescript-eslint/eslint-plugin": "^6.3.0",
     "@typescript-eslint/parser": "^6.3.0",
-    "copyfiles": "^2.4.1",
+    "symlink-dir": "^5.2.0",
     "cross-env": "^7.0.3",
     "eslint": "^8.47.0",
     "rimraf": "^5.0.1"

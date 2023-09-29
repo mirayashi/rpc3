@@ -9,7 +9,7 @@
   },
   "scripts": {
     "clean": "rimraf ./generated ./dist",
-    "generated:copy": "rimraf ./generated && copyfiles -EVu 4 ../../sc/typechain-types/common.ts ../../sc/typechain-types/contracts/RPC3/RPC3.ts ../../sc/typechain-types/factories/contracts/RPC3/RPC3__factory.ts ../../sc/typechain-types/contracts/common/SignedPermitChecker.ts generated",
+    "generated:link": "rimraf ./generated && symlink-dir ../../sc/typechain-types ./generated",
     "eslint": "eslint --ext .ts \"src/**\""
   },
   "keywords": [
