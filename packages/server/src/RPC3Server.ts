@@ -143,7 +143,8 @@ export default class RPC3Server {
       inactiveServers.push(...addresses)
       maxPage = pages.toNumber()
     }
-    await this._contract.housekeepInactive(inactiveServers)
+    const tx = await this._contract.housekeepInactive(inactiveServers)
+    await tx.wait()
   }
 
   private async _processBatch(onRequest: (req: RequestContext) => Promise<unknown>) {

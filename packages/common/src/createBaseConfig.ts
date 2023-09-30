@@ -9,6 +9,7 @@ export type BaseConfig = {
   env: string
   ethersProvider: ethers.providers.BaseProvider
   contractAddress: string
+  pcuContractAddress: string
   walletPrivateKey: string
   ipfsRpcUrl: string
 }
@@ -17,6 +18,7 @@ export function createBaseConfig(): BaseConfig {
   const config = ConfigBuilder.create<BaseConfig>()
     .withDefaultValues({
       contractAddress: requireEnv('CONTRACT_ADDRESS'),
+      pcuContractAddress: requireEnv('PCU_CONTRACT_ADDRESS'),
       walletPrivateKey: requireEnv('WALLET_PRIVATE_KEY'),
       ipfsRpcUrl: process.env.IPFS_RPC_URL || 'http://localhost:5001'
     })

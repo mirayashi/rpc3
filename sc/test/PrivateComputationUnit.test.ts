@@ -128,7 +128,7 @@ describe('PrivateComputationUnit', () => {
       const counterCiphertext = await contract.encrypt(owner.permit, keyNonce, utils.bigInt2Buf32(counter))
       const incrementCiphertext = await contract.encrypt(owner.permit, keyNonce, utils.bigInt2Buf32(increment))
 
-      const resultCiphertext = await contract.incrementCounter(owner.permit, counterCiphertext, incrementCiphertext)
+      const resultCiphertext = await contract.incrementCounter(counterCiphertext, incrementCiphertext)
       const result = utils.buf322BigInt(utils.hexString2Buf(await contract.decrypt(owner.permit, resultCiphertext)))
       expect(result).to.equal(1123n)
     })

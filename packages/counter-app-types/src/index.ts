@@ -1,12 +1,14 @@
+import { BytesLike } from 'ethers'
+
 export type Request = {
-  count: number
+  count: BytesLike
 }
 
 export type Response = ResponseSuccess | ResponseError
 
 export type ResponseSuccess = {
   status: 'ok'
-  newCount: number
+  newCount: BytesLike
 }
 
 export type ResponseError = {
@@ -15,5 +17,5 @@ export type ResponseError = {
 }
 
 export function isRequest(payload: unknown): payload is Request {
-  return typeof payload === 'object' && payload !== null && 'count' in payload && typeof payload.count === 'number'
+  return typeof payload === 'object' && payload !== null && 'count' in payload && typeof payload.count === 'string'
 }
