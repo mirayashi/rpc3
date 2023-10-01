@@ -1,7 +1,7 @@
 {
   "name": "rpc3",
   "version": "1.0.0",
-  "description": "A PoC for decentralized remote procedure calls leveraging IPFS and privacy-enabled blockchain",
+  "description": "A PoC for decentralized remote procedure calls, leveraging IPFS and privacy-enabled blockchain",
   "scripts": {
     "postinstall": "cross-env HH_EXCLUDE_TASKS=1 npm -w sc run compile:clean && npm -w packages/common run generated:link && tsc --build",
     "clean": "npm --workspaces --if-present run clean",
