@@ -65,17 +65,25 @@ Let's break this down:
 - The client is notified that a **response is available**, from there they can get the CID and download the content from
   IPFS
 
-Note that sending commands through this whole process is only useful if the client needs to perform an operation that
-modifies application state. For read-only queries, the client is expected to download the application state from IPFS
-and query the data themselves. This is a similar problem that we have with blockchains, where the client needs to
-download the blockchain by self-running a node in order to query data without relying on a third party. So just like
-blockchains, it would be possible to have intermediates that act as a gateway for clients to query data in a more
-convenient way.
+## Remarks
 
-Since servers run code that is written in usual languages, they are technically allowed to call external services
-through HTTP-based APIs for example. This gives the developer the responsibility not to create side-effects or rely on
-potentially non-deterministic sources, on the other hand this has the huge benefit of removing the need for oracles.
-After all, this whole architecture is pretty similar to how oracle protocols work.
+- The consensus step is certainly the most critical part of this process, and that is the very thing that is not
+  achievable with a blockchain without privacy capabilities. Indeed, the results submitted must be kept private in order
+  to have servers compute the results themselves and not steal other's work. It doesn't prevent cases where many servers
+  cooperate and "share" results between each other (also known as Sybil attacks), but this can be mitigated for example
+  with a staking mechanism for servers to be able to participate. The use of a privacy-enabled blockchain also makes it
+  possible to have end-to-end encryption so user data remains encrypted in both request/response payloads and
+  application state.
+- Sending commands under this architecture is only useful if the client needs to perform an operation that modifies
+  application state. For read-only queries, the client is expected to download the application state from IPFS and query
+  the data themselves. This is a similar problem that we have with blockchains, where the client needs to download the
+  blockchain by self-running a node in order to query data without relying on a third party. So just like blockchains,
+  it would be totally possible to have intermediates that act as a gateway for clients to query data in a more
+  convenient way.
+- Since servers run code that is written in usual languages, they are technically allowed to call external web2 services
+  through HTTP-based APIs for example. This gives the developer the responsibility not to create side-effects or rely on
+  potentially non-deterministic sources, on the other hand this has the huge benefit of removing the need for oracles.
+  After all, this whole architecture is pretty similar to how most oracle protocols work.
 
 ## Scope and project contents
 
@@ -135,7 +143,7 @@ permits in order to authenticate view calls.
 
 The last challenge was to think about all of the edge cases inherent to the complexity of the system I designed. How to
 code a proper staking mechanism, how to code a proper consensus algorithm, how to handle cases where servers go
-inactive, what to do when clients submit invalid data... But in the end, I had fun and I'm happy with the result.
+inactive, what to do when clients submit invalid data... But in the end, I had fun and I'm happy with the result :)
 
 ## Installation guide
 
