@@ -18,22 +18,22 @@ First thing that comes to mind when hearing this definition is blockchain techno
 great part of the solution, especially smart contracts which allowed the surge of decentralized exchanges and other
 DApps. But this comes with a certain number of known limitations :
 
-- Computational resources of smart contracts are limited, whether it is CPU power, memory or disk storage. EVM chains
-  for example use a gas system as a way to monetize these resources, and capacity depends on the maximum size of blocks
-  which is very limited
-- Programming of smart contracts can only be done with a limited set of instructions. Because result needs to be
+- **Computational resources of smart contracts are limited**, whether it is CPU power, memory or disk storage. EVM
+  chains for example use a gas system as a way to monetize these resources, and capacity depends on the maximum size of
+  blocks which is very limited
+- **Programming of smart contracts can only be done with a limited set of instructions.** Because result needs to be
   deterministic, we cannot use regular server-side programming languages, frameworks and libraries. We need to rely on
   oracles and inter-chain communication protocols to get data from external world, which adds layers of complexity.
-- Deploying updates is a tough task as smart contracts are by design not upgradeable. Design patterns exist in order to
-  mitigate this limitation, like the proxy pattern, but some cases may require more complex migration logic that
+- **Deploying updates is a tough task** as smart contracts are by design not upgradeable. Design patterns exist in order
+  to mitigate this limitation, like the proxy pattern, but some cases may require more complex migration logic that
   inherently induces various risks.
 
 When I discovered [Oasis Protocol](https://oasisprotocol.org) and how they managed to add privacy on smart contracts, I
 immediately realized that it would unlock new use cases and solve problems that did not have a solution until now.
 Regarding the three points above, there are indeed some projects out there that aim at solving one or many of these
-problems, but they often imply the creation of a new protocol or a new blockchain from scratch. However, I was able to
-glimpse the possibility of a solution that only uses smart contracts on an already existing protocol by leveraging its
-privacy capabilities.
+problems, but they often imply the creation of a new protocol or a new blockchain from scratch. However, here I was able
+to glimpse the possibility of a solution that only uses smart contracts on an already existing protocol, by leveraging
+its privacy capabilities.
 
 This is how the RPC3 project is born. I gave it this name because the type of client-server interactions that I wanted
 to cover matches pretty well the definition of [Remote Procedure
@@ -44,7 +44,7 @@ Calls](https://en.wikipedia.org/wiki/Remote_procedure_call), and the "3" is a re
 
 We obviously cannot expect such a new architecture to be as simple and straightforward as the classic one, simply
 because of the number of technical challenges being inherently higher. Some balance must be found between complexity and
-feasibility, the initial brainstorming is certainly what took the most time, especially when you are working solo on it.
+feasibility, the initial brainstorming is certainly what took the most time; especially when you are working solo on it.
 Here is what it looks like in the end:
 
 ![RPC3 architecture](docs/architecture-rpc3.png)
@@ -90,13 +90,13 @@ This repository contains:
   - Basic reward mechanism to incentivize servers to contribute positively, without explicitly defining the source of
     income that fund these rewards
 - A rudimentary demo app that allows clients to increment a private counter:
-  - A command-line client app that connects to a local IPFS node and can submit requests and read responses via the
-    contract. The users chooses a number and will increment a counter by that number, that initially starts at 0
+  - A command-line client app that connects to a local IPFS node and can interact with the contract. The users chooses a
+    number and will increment a counter by that number, that initially starts at 0
   - A server app that connects to the same local IPFS node and includes scripts to launch many servers and simulate the
     consensus process
-  - The off-chain state of the application (in this case the counter values for each user) is saved in a SQLite database
-    file which is stored in IPFS. Clients may use it to retrieve the value of their counter, and servers use it to save
-    the results from computations.
+  - The off-chain state of the application (in this case the counter values for each user) is represented by an SQLite
+    database living in IPFS. Clients may use it to retrieve the value of their counter, and servers use it to save the
+    results from computations.
 - A "private computation unit" (PCU) smart contract that adds an encryption layer to the whole system. This contract is
   entirely decoupled from the system itself, which is why I didn't mention it when I explained the general concept. It
   basically makes it possible for clients to send encrypted requests and for servers to perform computations over
@@ -116,6 +116,9 @@ This repository contains:
 - Currently you need to manually send funds to the contract in order to reward servers for their contribution. This is
   good because it allows to externally define the app's business model, but this part is not covered in the demo counter
   app.
+- The consensus process takes a certain time to complete. Between the submission of the command and the availability of
+  the output, there is an observed minimum of 40 seconds of delay. This makes it non suitable for applications requiring
+  live data or frequent updates. The scope is limited to _fast read, slow write_ type of applications.
 
 ## Challenges
 
