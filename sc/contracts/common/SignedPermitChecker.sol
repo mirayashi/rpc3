@@ -41,7 +41,9 @@ contract SignedPermitChecker is EIP712, CipherEnabled {
             ),
             (Permit)
         );
-        if (block.timestamp > permit.expiry) revert PermitExpired();
+        if (block.timestamp > permit.expiry) {
+            revert PermitExpired();
+        }
         bytes32 digest = _hashTypedDataV4(
             keccak256(
                 abi.encode(
@@ -52,7 +54,9 @@ contract SignedPermitChecker is EIP712, CipherEnabled {
             )
         );
         address signer = ECDSA.recover(digest, sp.signature);
-        if (signer != permit.requester) revert PermitUnauthorized();
+        if (signer != msg.sender || signer != permit.requester) {
+            revert PermitUnauthorized();
+        }
         _;
     }
 
